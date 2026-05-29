@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\RoutePermissionNames;
 use Closure;
 use Illuminate\Http\Request;
 use Spatie\Permission\Models\Permission;
@@ -21,8 +22,14 @@ class EnsureRoutePermission
             return $next($request);
         }
 
+        if ($user->isGlobalAdmin()) {
+            return $next($request);
+        }
+
+        $candidates = RoutePermissionNames::candidates($routeName);
+
         $hasPermissionRule = Permission::query()
-            ->whereIn('name', $this->permissionCandidates($routeName))
+            ->whereIn('name', $candidates)
             ->where('guard_name', 'web')
             ->exists();
 
@@ -31,25 +38,5 @@ class EnsureRoutePermission
         }
 
         abort(403, "Permission `{$routeName}` is required.");
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function permissionCandidates(string $routeName): array
-    {
-        $segments = explode('.', $routeName);
-        $candidates = [$routeName];
-        $actionSuffixes = ['create', 'store', 'edit', 'update', 'destroy', 'show', 'sync-routes', 'sync-permissions', 'assign-role'];
-
-        $last = end($segments);
-        if (in_array($last, $actionSuffixes, true) && count($segments) > 1) {
-            array_pop($segments);
-            $prefix = implode('.', $segments);
-            $candidates[] = $prefix;
-            $candidates[] = $prefix.'.index';
-        }
-
-        return array_values(array_unique($candidates));
     }
 }

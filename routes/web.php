@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AccessControlController;
+use App\Http\Controllers\ChargePointDiagnosticsController;
 use App\Http\Controllers\MasterDataController;
 use App\Http\Controllers\OcppCommandController;
 use App\Http\Controllers\ProfileController;
@@ -21,9 +22,8 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+Route::get('/dashboard', [App\Http\Controllers\DashboardController::class, 'index'])
+    ->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware(['auth', 'route_permission'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -33,9 +33,15 @@ Route::middleware(['auth', 'route_permission'])->group(function () {
     Route::prefix('master')->name('master.')->group(function () {
         Route::get('/charge-points', [MasterDataController::class, 'chargePoints'])->name('charge-points');
         Route::get('/charge-points/ocpp-live', [MasterDataController::class, 'chargePointsOcppLive'])->name('charge-points.ocpp-live');
+        Route::get('/charge-points/{id}/diagnostics', [ChargePointDiagnosticsController::class, 'index'])->name('charge-points.diagnostics.index');
+        Route::post('/charge-points/{id}/diagnostics', [ChargePointDiagnosticsController::class, 'store'])->name('charge-points.diagnostics.store');
+        Route::get('/diagnostics/{requestId}/download', [ChargePointDiagnosticsController::class, 'download'])->name('diagnostics.download');
         Route::get('/sessions', [MasterDataController::class, 'meterValues'])->name('sessions');
         Route::get('/sessions/live', [MasterDataController::class, 'sessionsLive'])->name('sessions.live');
+        Route::post('/sessions/stop', [MasterDataController::class, 'stopSession'])->name('sessions.stop');
         Route::get('/transactions', [MasterDataController::class, 'transactions'])->name('transactions');
+        Route::get('/transactions/export', [MasterDataController::class, 'transactionsExport'])->name('transactions.export');
+        Route::get('/transactions/{id}/detail', [MasterDataController::class, 'transactionDetail'])->name('transactions.detail');
         Route::get('/companies', [MasterDataController::class, 'companies'])->name('companies');
         Route::get('/timezones', [MasterDataController::class, 'timezoneOptions'])->name('timezones');
         Route::get('/users', [MasterDataController::class, 'users'])->name('users');

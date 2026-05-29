@@ -168,3 +168,166 @@ Tambahan terbaru:
 - Pastikan keputusan teknis tidak melanggar rules.
 - Update memo setiap selesai milestone besar.
 
+## 12) Command Artisan yang Harus Dijalankan
+
+### Setup Awal (Sekali Saja)
+
+```bash
+# 1. Install dependencies
+composer install
+npm install
+
+# 2. Setup environment
+cp .env.example .env
+php artisan key:generate
+
+# 3. Setup database
+php artisan migrate
+php artisan db:seed
+
+# 4. Sync permissions dari routes
+php artisan permissions:sync-routes
+
+# 5. Buat permission tambahan untuk CRUD operations
+php artisan tinker --execute="
+\$missingPermissions = [
+    'access-control.roles.sync-permissions',
+    'access-control.roles.store',
+    'access-control.roles.destroy',
+    'access-control.permissions.store',
+    'access-control.permissions.sync-routes',
+    'access-control.users.assign-role',
+    'master.catalog.store',
+    'master.catalog.update',
+    'master.catalog.destroy',
+    'master.companies.store',
+    'master.companies.update',
+    'master.companies.destroy',
+    'master.charge-points.store',
+    'master.charge-points.update',
+    'master.charge-points.destroy',
+    'master.users.store',
+    'master.users.update',
+    'master.users.destroy',
+    'ocpp.commands.store',
+];
+foreach (\$missingPermissions as \$name) {
+    \Spatie\Permission\Models\Permission::firstOrCreate(['name' => \$name, 'guard_name' => 'web']);
+}
+\$admin = \Spatie\Permission\Models\Role::where('name', 'admin')->first();
+\$allPermissions = \Spatie\Permission\Models\Permission::all();
+\$admin->syncPermissions(\$allPermissions);
+echo 'Admin role synced with all permissions';
+"
+
+# 6. Clear cache
+php artisan cache:clear
+php artisan config:clear
+
+# 7. Build frontend assets
+npm run build
+```
+
+### Development (Setiap Hari)
+
+**Opsi 1: Satu Command (Recommended)**
+```bash
+# Terminal 1: Jalankan semua service Laravel
+composer run dev
+# Ini akan menjalankan:
+# - php artisan serve (port 8000)
+# - php artisan queue:listen
+# - php artisan pail (log viewer)
+# - npm run dev (Vite)
+
+# Terminal 2: OCPP WebSocket Server
+php artisan ocpp:serve
+```
+
+**Opsi 2: Manual (Jika perlu kontrol lebih)**
+```bash
+# Terminal 1: Web server
+php artisan serve
+
+# Terminal 2: Queue worker
+php artisan queue:listen
+
+# Terminal 3: OCPP server
+php artisan ocpp:serve
+
+# Terminal 4: Frontend dev server
+npm run dev
+
+# Terminal 5 (optional): Log viewer
+php artisan pail
+```
+
+### Broadcasting Setup
+
+**Jika pakai Pusher (Cloud):**
+```bash
+# Update .env
+BROADCAST_CONNECTION=pusher
+VITE_ENABLE_PUSHER=true
+VITE_ENABLE_REVERB=false
+
+# Rebuild frontend
+npm run build
+```
+
+**Jika pakai Reverb (Self-hosted):**
+```bash
+# Update .env
+BROADCAST_CONNECTION=reverb
+VITE_ENABLE_REVERB=true
+VITE_ENABLE_PUSHER=false
+
+# Jalankan Reverb server (Terminal tambahan)
+php artisan reverb:start
+```
+
+### Testing OCPP
+
+```bash
+# Test dengan simulator
+php artisan ocpp:simulate CP-acme-001
+
+# Send command manual
+php artisan ocpp:command CP-acme-001 Reset '{"type":"Soft"}'
+
+# Reconcile timeout commands
+php artisan ocpp:commands:reconcile --timeout=30 --max-attempts=3
+```
+
+### Maintenance
+
+```bash
+# Kill stale OCPP server
+php artisan ocpp:kill --port=9001
+
+# Sync permissions setelah tambah route baru
+php artisan permissions:sync-routes
+
+# Test realtime event
+php artisan realtime:test CP-acme-001
+```
+
+### Troubleshooting
+
+```bash
+# Clear semua cache
+php artisan cache:clear
+php artisan config:clear
+php artisan route:clear
+php artisan view:clear
+
+# Rebuild autoload
+composer dump-autoload
+
+# Check queue jobs
+php artisan queue:work --once
+
+# Check database connection
+php artisan tinker --execute="DB::connection()->getPdo();"
+```
+

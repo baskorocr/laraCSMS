@@ -7,6 +7,62 @@ use App\Services\Auth\RoutePermissionSyncService;
 use App\Services\Ocpp\OcppWebSocketServer;
 use App\Services\Ocpp\OcppCommandService;
 
+/**
+ * @return array<int, int>
+ */
+function ocpp_port_listening_pids(int $port): array
+{
+    $pids = [];
+
+    if (PHP_OS_FAMILY === 'Windows') {
+        $output = shell_exec('netstat -ano | findstr :'.$port.' | findstr LISTENING') ?? '';
+        foreach (preg_split('/\R/', trim($output)) as $line) {
+            if (preg_match('/\s+(\d+)\s*$/', trim($line), $match)) {
+                $pids[] = (int) $match[1];
+            }
+        }
+
+        return array_values(array_unique(array_filter($pids)));
+    }
+
+    $lsof = trim((string) shell_exec("lsof -t -iTCP:{$port} -sTCP:LISTEN 2>/dev/null"));
+    if ($lsof !== '') {
+        foreach (preg_split('/\s+/', $lsof) as $pid) {
+            if (ctype_digit($pid)) {
+                $pids[] = (int) $pid;
+            }
+        }
+    }
+
+    if ($pids === []) {
+        $ss = (string) shell_exec("ss -ltnp 'sport = :{$port}' 2>/dev/null");
+        if (preg_match_all('/pid=(\d+)/', $ss, $matches)) {
+            $pids = array_map('intval', $matches[1]);
+        }
+    }
+
+    return array_values(array_unique(array_filter($pids)));
+}
+
+function ocpp_kill_pid(int $pid): void
+{
+    if ($pid <= 0) {
+        return;
+    }
+
+    if (PHP_OS_FAMILY === 'Windows') {
+        shell_exec('taskkill /PID '.$pid.' /F 2>NUL');
+
+        return;
+    }
+
+    if (function_exists('posix_kill')) {
+        posix_kill($pid, SIGKILL);
+    } else {
+        shell_exec('kill -9 '.$pid.' 2>/dev/null');
+    }
+}
+
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
@@ -24,17 +80,7 @@ Artisan::command('realtime:test {chargePointId=CP-acme-001}', function (string $
 
 Artisan::command('ocpp:kill {--port=9001}', function () {
     $port = (int) $this->option('port');
-    $pattern = ":{$port}";
-    $output = shell_exec('netstat -ano | findstr '.$pattern.' | findstr LISTENING') ?? '';
-    $pids = [];
-
-    foreach (preg_split('/\R/', trim($output)) as $line) {
-        if (preg_match('/\s+(\d+)\s*$/', trim($line), $match)) {
-            $pids[] = (int) $match[1];
-        }
-    }
-
-    $pids = array_values(array_unique(array_filter($pids)));
+    $pids = ocpp_port_listening_pids($port);
 
     if ($pids === []) {
         $this->info("Tidak ada proses LISTENING di port {$port}.");
@@ -43,11 +89,7 @@ Artisan::command('ocpp:kill {--port=9001}', function () {
     }
 
     foreach ($pids as $pid) {
-        if ($pid <= 0) {
-            continue;
-        }
-
-        shell_exec('taskkill /PID '.$pid.' /F 2>NUL');
+        ocpp_kill_pid($pid);
         $this->line("Stopped PID {$pid}");
     }
 
@@ -63,10 +105,9 @@ Artisan::command('ocpp:serve {--host=0.0.0.0} {--port=9001}', function () {
     }
     ob_implicit_flush(true);
 
-    $listeners = shell_exec('netstat -ano | findstr :'.$port.' | findstr LISTENING') ?? '';
-    if (trim($listeners) !== '') {
-        $this->warn("Port {$port} sudah dipakai proses lain. Log tidak akan muncul di terminal ini.");
-        $this->line($listeners);
+    $listenerPids = ocpp_port_listening_pids($port);
+    if ($listenerPids !== []) {
+        $this->warn("Port {$port} sudah dipakai (PID: ".implode(', ', $listenerPids).').');
         $this->warn('Jalankan dulu: php artisan ocpp:kill --port='.$port);
     }
 

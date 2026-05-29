@@ -22,7 +22,7 @@ class Ocpp16Adapter implements OcppAdapterInterface
                     'status' => 'Accepted',
                 ],
             ],
-            'StatusNotification', 'MeterValues', 'StartTransaction', 'StopTransaction' => [],
+            'StatusNotification', 'MeterValues', 'StartTransaction', 'StopTransaction', 'DiagnosticsStatusNotification' => [],
             default => null,
         };
     }

@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Company;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -21,33 +22,27 @@ class PermissionRoleSeeder extends Seeder
         $permissionRegistrar = app(PermissionRegistrar::class);
         $permissionRegistrar->forgetCachedPermissions();
 
-        $permissions = [
-            'view_charging',
-            'control_charging',
-            'stop_transaction',
-            'view_reports',
-            'manage_users',
-            'manage_stations',
-            'manage_roles',
-            'manage_permissions',
-            'view_transactions',
-            'view_meter_values',
-            'view_ocpp_logs',
-        ];
+        $sidebar = config('permissions.sidebar', []);
+        $support = config('permissions.support', []);
+        $adminPermissions = array_values(array_unique(array_merge($sidebar, $support)));
+        $companyAdminPermissions = config('permissions.company_admin', []);
+        $companyUserPermissions = config('permissions.company_user', []);
 
-        foreach ($permissions as $permissionName) {
+        foreach ($adminPermissions as $permissionName) {
             Permission::firstOrCreate([
                 'name' => $permissionName,
                 'guard_name' => 'web',
             ]);
         }
 
+        $this->removeOrphanPermissions($adminPermissions);
+
         $adminRole = Role::firstOrCreate([
             'name' => 'admin',
             'guard_name' => 'web',
             $teamForeignKey => 0,
         ]);
-        $adminRole->syncPermissions($permissions);
+        $adminRole->syncPermissions($adminPermissions);
 
         $admin = User::updateOrCreate(
             ['email' => 'admin@csms.local'],
@@ -77,25 +72,8 @@ class PermissionRoleSeeder extends Seeder
                 $teamForeignKey => $company->id,
             ]);
 
-            $companyAdminRole->syncPermissions([
-                'view_charging',
-                'control_charging',
-                'stop_transaction',
-                'view_reports',
-                'manage_users',
-                'manage_stations',
-                'manage_roles',
-                'view_transactions',
-                'view_meter_values',
-                'view_ocpp_logs',
-            ]);
-
-            $companyUserRole->syncPermissions([
-                'view_charging',
-                'view_reports',
-                'view_transactions',
-                'view_meter_values',
-            ]);
+            $companyAdminRole->syncPermissions($companyAdminPermissions);
+            $companyUserRole->syncPermissions($companyUserPermissions);
 
             $companyAdmin = User::updateOrCreate(
                 ['email' => "admin.{$company->code}@csms.local"],
@@ -124,5 +102,26 @@ class PermissionRoleSeeder extends Seeder
 
         $permissionRegistrar->setPermissionsTeamId(0);
         $permissionRegistrar->forgetCachedPermissions();
+    }
+
+    /**
+     * @param array<int, string> $allowed
+     */
+    private function removeOrphanPermissions(array $allowed): void
+    {
+        $allowedLookup = array_fill_keys($allowed, true);
+
+        Permission::query()
+            ->where('guard_name', 'web')
+            ->pluck('name')
+            ->each(function (string $name) use ($allowedLookup): void {
+                if (! isset($allowedLookup[$name])) {
+                    Permission::where('name', $name)->where('guard_name', 'web')->delete();
+                }
+            });
+
+        DB::table('role_has_permissions')
+            ->whereNotIn('permission_id', Permission::query()->pluck('id'))
+            ->delete();
     }
 }

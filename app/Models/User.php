@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\RoutePermissionNames;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -56,36 +57,16 @@ class User extends Authenticatable
 
     public function canAccessRoute(string $routeName): bool
     {
-        foreach ($this->routePermissionCandidates($routeName) as $permissionName) {
+        if ($this->isGlobalAdmin()) {
+            return true;
+        }
+
+        foreach (RoutePermissionNames::candidates($routeName) as $permissionName) {
             if ($this->can($permissionName)) {
                 return true;
             }
         }
 
-        return match ($routeName) {
-            'access-control.roles.index' => $this->can('manage_roles'),
-            'access-control.permissions.index' => $this->can('manage_permissions'),
-            default => false,
-        };
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function routePermissionCandidates(string $routeName): array
-    {
-        $candidates = [$routeName];
-        $segments = explode('.', $routeName);
-        $actionSuffixes = ['create', 'store', 'edit', 'update', 'destroy', 'show', 'sync-routes', 'sync-permissions', 'assign-role'];
-
-        $last = end($segments);
-        if (in_array($last, $actionSuffixes, true) && count($segments) > 1) {
-            array_pop($segments);
-            $prefix = implode('.', $segments);
-            $candidates[] = $prefix;
-            $candidates[] = $prefix.'.index';
-        }
-
-        return array_values(array_unique($candidates));
+        return false;
     }
 }

@@ -35,6 +35,13 @@ class ChargePointRealtimePublisher
             return;
         }
 
+        $connectorStatuses = DB::table('connectors')
+            ->where('charge_point_id', $chargePointId)
+            ->orderBy('connector_id')
+            ->get(['connector_id', 'status'])
+            ->map(fn ($connector) => $connector->connector_id.':'.$connector->status)
+            ->implode('|');
+
         $payload = [
             'id' => (int) $row->id,
             'company_id' => (int) $row->company_id,
@@ -45,6 +52,7 @@ class ChargePointRealtimePublisher
             'ocpp_version' => (string) $row->ocpp_version,
             'status' => (string) $row->status,
             'is_online' => (bool) $row->is_online,
+            'connector_statuses' => $connectorStatuses,
             'created_at' => (string) $row->created_at,
             'updated_at' => (string) $row->updated_at,
         ];

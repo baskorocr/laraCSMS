@@ -13,7 +13,8 @@ class OcppMessageService
     public function __construct(
         private readonly OcppAdapterManager $adapterManager,
         private readonly TransactionService $transactionService,
-        private readonly OcppCommandService $commandService
+        private readonly OcppCommandService $commandService,
+        private readonly DiagnosticsService $diagnosticsService
     ) {
     }
 
@@ -162,14 +163,22 @@ class OcppMessageService
     private function buildResponsePayload(string $action, array $payload, array $stationContext): ?array
     {
         if ($action === 'StatusNotification') {
-            ProcessStatusNotificationJob::dispatchSync($stationContext, $payload);
+            if ($this->isOcpp21($stationContext)) {
+                $this->adapterManager->resolve('2.1')->handleCall($action, $payload, $stationContext);
+            } else {
+                ProcessStatusNotificationJob::dispatchSync($stationContext, $payload);
+            }
 
             return [];
         }
 
         if ($action === 'MeterValues') {
-            // Process immediately so Socket.IO updates are not delayed by queue worker.
-            ProcessMeterValuesJob::dispatchSync($stationContext, $payload);
+            if ($this->isOcpp21($stationContext)) {
+                $this->adapterManager->resolve('2.1')->handleCall($action, $payload, $stationContext);
+            } else {
+                // Process immediately so Socket.IO updates are not delayed by queue worker.
+                ProcessMeterValuesJob::dispatchSync($stationContext, $payload);
+            }
 
             return [];
         }
@@ -178,6 +187,15 @@ class OcppMessageService
             ProcessStopTransactionJob::dispatch($stationContext, $payload);
 
             return ['idTagInfo' => ['status' => 'Accepted']];
+        }
+
+        if ($action === 'DiagnosticsStatusNotification') {
+            $this->diagnosticsService->handleStatusNotification(
+                (string) $stationContext['charge_point_code'],
+                $payload
+            );
+
+            return [];
         }
 
         if ($action === 'StartTransaction') {
@@ -314,6 +332,14 @@ class OcppMessageService
     /**
      * @return array<string, mixed>
      */
+    /**
+     * @param array<string, mixed> $stationContext
+     */
+    private function isOcpp21(array $stationContext): bool
+    {
+        return ($stationContext['ocpp_version'] ?? '1.6') === '2.1';
+    }
+
     private function callError(string $messageUid, string $errorCode, string $errorDescription): array
     {
         return [

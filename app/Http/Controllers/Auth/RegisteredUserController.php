@@ -59,27 +59,16 @@ class RegisteredUserController extends Controller
             config('permission.column_names.team_foreign_key', 'company_id') => $company->id,
         ]);
 
-        $permissions = [
-            'view_charging',
-            'control_charging',
-            'stop_transaction',
-            'view_reports',
-            'manage_users',
-            'manage_stations',
-            'manage_roles',
-            'view_transactions',
-            'view_meter_values',
-            'view_ocpp_logs',
-        ];
+        $companyAdminPermissions = config('permissions.company_admin', []);
 
-        foreach ($permissions as $permissionName) {
+        foreach ($companyAdminPermissions as $permissionName) {
             Permission::firstOrCreate([
                 'name' => $permissionName,
                 'guard_name' => 'web',
             ]);
         }
 
-        $companyAdminRole->syncPermissions($permissions);
+        $companyAdminRole->syncPermissions($companyAdminPermissions);
 
         app(PermissionRegistrar::class)->setPermissionsTeamId($company->id);
         $user->assignRole($companyAdminRole);

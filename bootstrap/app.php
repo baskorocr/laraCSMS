@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use App\Http\Middleware\EnsureRoutePermission;
+use App\Http\Middleware\NoCache;
 use App\Http\Middleware\SetPermissionTeam;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
@@ -23,10 +24,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => PermissionMiddleware::class,
             'role_or_permission' => RoleOrPermissionMiddleware::class,
             'route_permission' => EnsureRoutePermission::class,
+            'no_cache' => NoCache::class,
         ]);
 
         $middleware->web(append: [
             SetPermissionTeam::class,
+            NoCache::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

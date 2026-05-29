@@ -114,24 +114,8 @@
         };
 
         const applyChargePointRow = (payload) => {
-            if (!payload?.id) {
-                return;
-            }
-
-            const row = document.querySelector(`[data-charge-point-row="${payload.id}"]`);
-            if (!row) {
-                return;
-            }
-
-            const statusCell = row.querySelector('[data-charge-point-status]');
-            const onlineCell = row.querySelector('[data-charge-point-online]');
-
-            if (statusCell) {
-                statusCell.textContent = payload.status || '-';
-            }
-
-            if (onlineCell) {
-                onlineCell.textContent = payload.is_online ? 'Online' : 'Offline';
+            if (typeof window.applyChargePointRealtimeRow === 'function') {
+                window.applyChargePointRealtimeRow(payload);
             }
         };
 
@@ -245,10 +229,6 @@
                 });
             }
 
-            window.Echo.channel('charge-points').listen('.charge-point.status.updated', (event) => {
-                applyChargePointRow(event?.chargePoint ?? null);
-            });
-
             window.Echo.channel('ocpp-messages').listen('.ocpp.message.received', (event) => {
                 const payload = event?.message ?? null;
                 if (!payload) {
@@ -358,6 +338,10 @@
             if (event.key === 'Escape' && isModalOpen()) {
                 closeModal();
             }
+        });
+
+        document.addEventListener('csms:charge-point-status', (event) => {
+            applyChargePointRow(event.detail ?? null);
         });
 
         waitForEcho(setupEchoListeners);

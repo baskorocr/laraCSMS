@@ -167,12 +167,22 @@ class OcppWebSocketServer
         $id = (int) $socket;
         if (isset($this->clientMeta[$id])) {
             $chargePointPk = (int) $this->clientMeta[$id]['charge_point_pk'];
+            DB::table('connectors')
+                ->where('charge_point_id', $chargePointPk)
+                ->whereIn('status', ['Charging', 'Occupied'])
+                ->update([
+                    'status' => 'Available',
+                    'updated_at' => now(),
+                ]);
+
             DB::table('charge_points')
                 ->where('id', $chargePointPk)
                 ->update([
                     'is_online' => false,
+                    'status' => 'Available',
                     'updated_at' => now(),
                 ]);
+
             $this->realtimePublisher->publishById($chargePointPk);
             $this->writeConsole("[OCPP] disconnected {$this->clientMeta[$id]['charge_point_code']}");
         }

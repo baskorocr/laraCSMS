@@ -3,6 +3,10 @@
         <div>
             <h1 class="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ $title }}</h1>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $subtitle }}</p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <span data-csms-pusher-status class="font-medium text-amber-600 dark:text-amber-400">Pusher: menghubungkan...</span>
+                · Status connector realtime (sama seperti Charge Points)
+            </p>
         </div>
     </x-slot>
 
@@ -48,12 +52,13 @@
                             @if ($isAdmin)
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Company</th>
                             @endif
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Connectors</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
                         @forelse ($rows as $row)
-                            <tr class="hover:bg-gray-50/70 dark:hover:bg-dark-eval-2/60">
+                            <tr class="hover:bg-gray-50/70 dark:hover:bg-dark-eval-2/60" data-charge-point-row="{{ $row->id }}">
                                 <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                                     <div class="font-medium">{{ $row->charge_point_id }}</div>
                                     <div class="text-xs text-gray-500 dark:text-gray-400">{{ $row->name }}</div>
@@ -61,21 +66,67 @@
                                 @if ($isAdmin)
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->company_name ?? '-' }}</td>
                                 @endif
+                                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                                    @if ($row->connector_count > 0)
+                                        <div class="flex flex-wrap gap-1">
+                                            @foreach (explode('|', $row->connector_statuses) as $connectorStatus)
+                                                @php
+                                                    [$connectorId, $status] = explode(':', $connectorStatus);
+                                                    $statusColor = match($status) {
+                                                        'Available' => 'bg-green-100 text-green-800',
+                                                        'Charging', 'Occupied' => 'bg-blue-100 text-blue-800',
+                                                        'Preparing', 'Finishing', 'Reserved' => 'bg-yellow-100 text-yellow-800',
+                                                        'Faulted', 'Unavailable' => 'bg-red-100 text-red-800',
+                                                        default => 'bg-gray-100 text-gray-800'
+                                                    };
+                                                @endphp
+                                                <span
+                                                    class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium {{ $statusColor }}"
+                                                    data-connector-badge="{{ $connectorId }}"
+                                                >
+                                                    #{{ $connectorId }}: {{ $status }}
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @else
+                                        <span class="text-gray-400 text-xs">No connectors</span>
+                                    @endif
+                                </td>
                                 <td class="whitespace-nowrap px-4 py-3 text-sm">
-                                    <button
-                                        type="button"
-                                        class="inline-flex rounded bg-brand-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-800"
-                                        data-open-monitor
-                                        data-charge-point-id="{{ $row->id }}"
-                                        data-charge-point-code="{{ $row->charge_point_id }}"
-                                    >
-                                        Monitor
-                                    </button>
+                                    @if ($row->connector_count > 0)
+                                        <div class="flex flex-wrap gap-1">
+                                            @foreach (explode('|', $row->connector_statuses) as $connectorStatus)
+                                                @php
+                                                    [$connectorId, $status] = explode(':', $connectorStatus);
+                                                @endphp
+                                                <button
+                                                    type="button"
+                                                    class="inline-flex rounded bg-brand-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-800"
+                                                    data-open-monitor
+                                                    data-charge-point-id="{{ $row->id }}"
+                                                    data-charge-point-code="{{ $row->charge_point_id }}"
+                                                    data-connector-id="{{ $connectorId }}"
+                                                >
+                                                    Monitor #{{ $connectorId }}
+                                                </button>
+                                            @endforeach
+                                        </div>
+                                    @else
+                                        <button
+                                            type="button"
+                                            class="inline-flex rounded bg-brand-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-800"
+                                            data-open-monitor
+                                            data-charge-point-id="{{ $row->id }}"
+                                            data-charge-point-code="{{ $row->charge_point_id }}"
+                                        >
+                                            Monitor
+                                        </button>
+                                    @endif
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ $isAdmin ? 3 : 2 }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <td colspan="{{ $isAdmin ? 4 : 3 }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                                     Data belum tersedia.
                                 </td>
                             </tr>
@@ -85,6 +136,7 @@
             </div>
         </section>
     </div>
-</x-app-layout>
 
-@include('master.partials.charge-point-monitor')
+    @include('master.partials.charge-point-realtime')
+    @include('master.partials.charge-point-monitor')
+</x-app-layout>

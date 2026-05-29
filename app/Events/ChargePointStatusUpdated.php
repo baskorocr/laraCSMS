@@ -28,5 +28,10 @@ class ChargePointStatusUpdated implements ShouldBroadcastNow
     {
         return 'charge-point.status.updated';
     }
+
+    public function broadcastWith(): array
+    {
+        return ['chargePoint' => $this->chargePoint];
+    }
 }
 

@@ -3,6 +3,12 @@
         <div>
             <h1 class="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ $title }}</h1>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $subtitle }}</p>
+            @if ($entity === 'charge_points')
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    <span data-csms-pusher-status class="font-medium text-amber-600 dark:text-amber-400">Pusher: menghubungkan...</span>
+                    · Status connector realtime via Pusher
+                </p>
+            @endif
         </div>
     </x-slot>
 
@@ -237,12 +243,15 @@
                             @else
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">ID</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Charge Point ID</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">WS OCPP URL</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Name</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Company</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Connectors</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">OCPP</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Status</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Online</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">OCPP Payload</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Diagnostics</th>
                             @endif
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Created</th>
                             @if ($canManage)
@@ -273,8 +282,66 @@
                                 @else
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->id }}</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->charge_point_id }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                                        @php
+                                            $ocppWsDirect = \App\Support\OcppWebSocketUrl::directForChargePoint((string) $row->charge_point_id);
+                                            $ocppWsSecure = \App\Support\OcppWebSocketUrl::secureForChargePoint((string) $row->charge_point_id);
+                                            $ocppWsLocal = \App\Support\OcppWebSocketUrl::localForChargePoint((string) $row->charge_point_id);
+                                        @endphp
+                                        <div class="max-w-[260px] space-y-1">
+                                            <div class="flex items-center gap-1">
+                                                <code class="block truncate rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" title="{{ $ocppWsDirect }}">{{ $ocppWsDirect }}</code>
+                                                <button
+                                                    type="button"
+                                                    class="shrink-0 rounded border border-gray-300 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-dark-eval-2"
+                                                    data-copy-ocpp-ws
+                                                    data-copy-text="{{ $ocppWsDirect }}"
+                                                    title="Salin URL untuk charger"
+                                                >
+                                                    Copy
+                                                </button>
+                                            </div>
+                                            <div class="truncate text-[10px] text-gray-500 dark:text-gray-400" title="{{ $ocppWsSecure }}">
+                                                WSS (443): {{ $ocppWsSecure }}
+                                            </div>
+                                            <div class="truncate text-[10px] text-gray-400 dark:text-gray-500" title="{{ $ocppWsLocal }}">
+                                                Lokal: {{ $ocppWsLocal }}
+                                            </div>
+                                        </div>
+                                    </td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->name }}</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->company_name ?? '-' }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                                        @if ($row->connector_count > 0)
+                                            <div class="flex flex-col gap-1">
+                                                <span class="font-medium">{{ $row->connector_count }} connector(s)</span>
+                                                @if ($row->connector_statuses)
+                                                    <div class="flex flex-wrap gap-1">
+                                                        @foreach (explode('|', $row->connector_statuses) as $connectorStatus)
+                                                            @php
+                                                                [$connectorId, $status] = explode(':', $connectorStatus);
+                                                                $statusColor = match($status) {
+                                                                    'Available' => 'bg-green-100 text-green-800',
+                                                                    'Charging', 'Occupied' => 'bg-blue-100 text-blue-800',
+                                                                    'Reserved' => 'bg-yellow-100 text-yellow-800',
+                                                                    'Faulted', 'Unavailable' => 'bg-red-100 text-red-800',
+                                                                    default => 'bg-gray-100 text-gray-800'
+                                                                };
+                                                            @endphp
+                                                            <span
+                                                                class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium {{ $statusColor }}"
+                                                                data-connector-badge="{{ $connectorId }}"
+                                                            >
+                                                                #{{ $connectorId }}: {{ $status }}
+                                                            </span>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        @else
+                                            <span class="text-gray-400">No connectors</span>
+                                        @endif
+                                    </td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->ocpp_version }}</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300" data-charge-point-status>{{ $row->status }}</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300" data-charge-point-online>{{ $row->is_online ? 'Online' : 'Offline' }}</td>
@@ -287,6 +354,17 @@
                                             data-charge-point-code="{{ $row->charge_point_id }}"
                                         >
                                             Lihat Payload
+                                        </button>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                                        <button
+                                            type="button"
+                                            class="inline-flex rounded bg-amber-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                                            data-open-diagnostics
+                                            data-charge-point-id="{{ $row->id }}"
+                                            data-charge-point-code="{{ $row->charge_point_id }}"
+                                        >
+                                            Get Diagnostics
                                         </button>
                                     </td>
                                 @endif
@@ -433,7 +511,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ $entity === 'companies' ? ($canManage ? 7 : 6) : ($entity === 'users' ? ($canManage ? 7 : 6) : ($canManage ? 11 : 10)) }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <td colspan="{{ $entity === 'companies' ? ($canManage ? 7 : 6) : ($entity === 'users' ? ($canManage ? 7 : 6) : ($canManage ? 14 : 13)) }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                                     Data belum tersedia.
                                 </td>
                             </tr>
@@ -443,10 +521,38 @@
             </div>
         </section>
     </div>
+
+    @if ($entity === 'charge_points')
+        @include('master.partials.charge-point-realtime')
+        @include('master.partials.charge-point-ocpp-payload')
+        @include('master.partials.charge-point-diagnostics')
+    @endif
 </x-app-layout>
 
 @if ($entity === 'charge_points')
-    @include('master.partials.charge-point-ocpp-payload')
+    <script>
+        document.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-copy-ocpp-ws]');
+            if (!button) {
+                return;
+            }
+
+            const text = button.dataset.copyText || '';
+            if (!text) {
+                return;
+            }
+
+            navigator.clipboard.writeText(text).then(() => {
+                const original = button.textContent;
+                button.textContent = 'Copied';
+                window.setTimeout(() => {
+                    button.textContent = original;
+                }, 1200);
+            }).catch(() => {
+                window.prompt('Salin URL OCPP:', text);
+            });
+        });
+    </script>
 @endif
 
 @if ($entity === 'companies')

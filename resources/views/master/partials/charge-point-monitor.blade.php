@@ -20,6 +20,37 @@
                         </p>
                     </div>
                     <div class="flex shrink-0 flex-wrap gap-2">
+                        <form method="POST" action="{{ route('ocpp.commands.store') }}" id="monitor-unlock-form">
+                            @csrf
+                            <input type="hidden" name="charge_point_id" id="monitor-unlock-charge-point-code">
+                            <input type="hidden" name="action" value="UnlockConnector">
+                            <input type="hidden" name="payload" id="monitor-unlock-payload">
+                            <button
+                                type="submit"
+                                id="monitor-unlock-button"
+                                class="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+                                disabled
+                                title="Buka monitor via tombol Monitor #connector"
+                                onclick="return confirm('Unlock connector ini?')"
+                            >
+                                Unlock Connector
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ route('master.sessions.stop') }}" id="monitor-stop-form">
+                            @csrf
+                            <input type="hidden" name="charge_point_id" id="monitor-stop-charge-point-id">
+                            <input type="hidden" name="connector_id" id="monitor-stop-connector-id">
+                            <button
+                                type="submit"
+                                id="monitor-stop-button"
+                                class="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+                                disabled
+                                title="Buka monitor via tombol Monitor #connector"
+                                onclick="return confirm('Stop transaksi aktif pada connector ini?')"
+                            >
+                                Stop Connector
+                            </button>
+                        </form>
                         <button
                             type="button"
                             id="close-monitor-modal"
@@ -81,6 +112,14 @@
         const monitorSampledAt = document.getElementById('monitor-sampled-at');
         const monitorLog = document.getElementById('monitor-log');
         const connectionBadge = document.getElementById('realtime-connection-badge');
+        const stopForm = document.getElementById('monitor-stop-form');
+        const stopButton = document.getElementById('monitor-stop-button');
+        const stopChargePointInput = document.getElementById('monitor-stop-charge-point-id');
+        const stopConnectorInput = document.getElementById('monitor-stop-connector-id');
+        const unlockForm = document.getElementById('monitor-unlock-form');
+        const unlockButton = document.getElementById('monitor-unlock-button');
+        const unlockChargePointInput = document.getElementById('monitor-unlock-charge-point-code');
+        const unlockPayloadInput = document.getElementById('monitor-unlock-payload');
         const liveEndpoint = @json(route('master.sessions.live', request()->query()));
 
         if (!modal || !closeModalButton) {
@@ -89,6 +128,7 @@
 
         let selectedChargePointPk = null;
         let selectedChargePointCode = null;
+        let selectedConnectorId = null;
         let echoConnected = false;
         let monitorOnlineState = false;
         let echoListenersReady = false;
@@ -114,24 +154,8 @@
         };
 
         const applyChargePointRow = (payload) => {
-            if (!payload?.id) {
-                return;
-            }
-
-            const row = document.querySelector(`[data-charge-point-row="${payload.id}"]`);
-            if (!row) {
-                return;
-            }
-
-            const statusCell = row.querySelector('[data-charge-point-status]');
-            const onlineCell = row.querySelector('[data-charge-point-online]');
-
-            if (statusCell) {
-                statusCell.textContent = payload.status || '-';
-            }
-
-            if (onlineCell) {
-                onlineCell.textContent = payload.is_online ? 'Online' : 'Offline';
+            if (typeof window.applyChargePointRealtimeRow === 'function') {
+                window.applyChargePointRealtimeRow(payload);
             }
         };
 
@@ -280,6 +304,7 @@
                 setMonitorCard('sampled_at', '-');
             }
 
+            updateUnlockButtonState(item.status);
             refreshConnectionBadge();
             scheduleAutoResync();
         };
@@ -307,6 +332,7 @@
                 scheduleAutoResync();
             }
 
+            updateUnlockButtonState(payload.status);
             refreshConnectionBadge();
             appendLog(`Status: ${payload.status || '-'} | ${payload.is_online ? 'Online' : 'Offline'}`);
         };
@@ -358,10 +384,6 @@
                 });
             }
 
-            window.Echo.channel('charge-points').listen('.charge-point.status.updated', (event) => {
-                applyChargePointStatus(event?.chargePoint ?? null);
-            });
-
             window.Echo.channel('meter-values').listen('.meter-value.received', (event) => {
                 applyMeterValue(event?.meterValue ?? null);
             });
@@ -391,12 +413,19 @@
             const url = `${liveEndpoint}${liveEndpoint.includes('?') ? '&' : '?'}charge_point_id=${encodeURIComponent(selectedChargePointCode)}`;
 
             return fetch(url, {
+                credentials: 'same-origin',
                 headers: {
                     'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                 },
             })
-                .then((response) => response.ok ? response.json() : Promise.reject(new Error('sync-failed')))
+                .then((response) => {
+                    if (!response.ok) {
+                        return Promise.reject(new Error(`sync-failed:${response.status}`));
+                    }
+
+                    return response.json();
+                })
                 .then((json) => {
                     const data = Array.isArray(json.data) ? json.data : [];
                     const monitored = data.find((item) => item.charge_point_id === selectedChargePointCode);
@@ -412,9 +441,12 @@
                         appendLog(`resync ${json.synced_at}: data tidak ditemukan`);
                     }
                 })
-                .catch(() => {
+                .catch((error) => {
                     if (!silent) {
-                        appendLog('Resync gagal — cek php artisan serve');
+                        const status = String(error?.message || '').includes('403')
+                            ? '403 (izin route)'
+                            : String(error?.message || '').replace('sync-failed:', 'HTTP ');
+                        appendLog(`Resync gagal${status ? ` — ${status}` : ''}`);
                     }
                 })
                 .finally(() => {
@@ -431,17 +463,60 @@
             document.body.classList.toggle('overflow-hidden', locked);
         };
 
+        const updateUnlockButtonState = (status) => {
+            if (!unlockButton || !selectedConnectorId) {
+                return;
+            }
+
+            const isCharging = status === 'Charging';
+            unlockButton.disabled = isCharging;
+            unlockButton.title = isCharging
+                ? 'Tidak bisa unlock saat charging'
+                : `Unlock connector #${selectedConnectorId}`;
+        };
+
         const openModal = (button) => {
             selectedChargePointPk = String(button.dataset.chargePointId);
             selectedChargePointCode = String(button.dataset.chargePointCode || '');
+            selectedConnectorId = button.dataset.connectorId ? String(button.dataset.connectorId) : null;
             monitorChargePoint.textContent = selectedChargePointCode || '-';
             monitorLog.innerHTML = '';
             pendingLogs.length = 0;
             resetMonitorCards();
 
+            if (stopChargePointInput) {
+                stopChargePointInput.value = selectedChargePointPk ?? '';
+            }
+            if (stopConnectorInput) {
+                stopConnectorInput.value = selectedConnectorId ?? '';
+            }
+            if (stopButton) {
+                const hasConnector = !!selectedConnectorId;
+                stopButton.disabled = !hasConnector;
+                stopButton.textContent = hasConnector ? `Stop Connector #${selectedConnectorId}` : 'Stop Connector';
+                stopButton.title = hasConnector
+                    ? `Stop transaksi aktif di connector #${selectedConnectorId}`
+                    : 'Buka monitor via tombol Monitor #connector';
+            }
+
+            if (unlockChargePointInput) {
+                unlockChargePointInput.value = selectedChargePointCode ?? '';
+            }
+            if (unlockPayloadInput && selectedConnectorId) {
+                unlockPayloadInput.value = JSON.stringify({ connectorId: parseInt(selectedConnectorId) });
+            }
+            if (unlockButton) {
+                const hasConnector = !!selectedConnectorId;
+                unlockButton.disabled = !hasConnector;
+                unlockButton.textContent = hasConnector ? `Unlock Connector #${selectedConnectorId}` : 'Unlock Connector';
+                unlockButton.title = hasConnector
+                    ? `Unlock connector #${selectedConnectorId}`
+                    : 'Buka monitor via tombol Monitor #connector';
+            }
+
             modal.classList.remove('hidden');
             lockBodyScroll(true);
-            appendLog(`Monitoring ${selectedChargePointCode} via Pusher/Echo`);
+            appendLog(`Monitoring ${selectedChargePointCode}${selectedConnectorId ? ` connector #${selectedConnectorId}` : ''} via Pusher/Echo`);
 
             syncEchoConnectionState();
             waitForEcho(() => {
@@ -456,7 +531,32 @@
             stopAutoResync();
             selectedChargePointPk = null;
             selectedChargePointCode = null;
+            selectedConnectorId = null;
             monitorOnlineState = false;
+
+            if (stopChargePointInput) {
+                stopChargePointInput.value = '';
+            }
+            if (stopConnectorInput) {
+                stopConnectorInput.value = '';
+            }
+            if (stopButton) {
+                stopButton.disabled = true;
+                stopButton.textContent = 'Stop Connector';
+                stopButton.title = 'Buka monitor via tombol Monitor #connector';
+            }
+
+            if (unlockChargePointInput) {
+                unlockChargePointInput.value = '';
+            }
+            if (unlockPayloadInput) {
+                unlockPayloadInput.value = '';
+            }
+            if (unlockButton) {
+                unlockButton.disabled = true;
+                unlockButton.textContent = 'Unlock Connector';
+                unlockButton.title = 'Buka monitor via tombol Monitor #connector';
+            }
         };
 
         document.addEventListener('click', (event) => {
@@ -477,6 +577,10 @@
             if (event.key === 'Escape' && isModalOpen()) {
                 closeModal();
             }
+        });
+
+        document.addEventListener('csms:charge-point-status', (event) => {
+            applyChargePointStatus(event.detail ?? null);
         });
 
         waitForEcho(setupEchoListeners);

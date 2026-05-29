@@ -77,6 +77,15 @@ class RoutePermissionSyncService
      */
     public function manageableRouteNames(): array
     {
+        $canonical = array_values(array_unique(array_merge(
+            config('permissions.sidebar', []),
+            config('permissions.support', [])
+        )));
+
+        if ($canonical !== []) {
+            return collect($canonical)->sort()->values()->all();
+        }
+
         return collect(array_keys(Route::getRoutes()->getRoutesByName()))
             ->filter(fn (string $name) => $this->isManageableRouteName($name))
             ->sort()

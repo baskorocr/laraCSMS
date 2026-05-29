@@ -1,0 +1,16 @@
+{
+  "name": "csms-testing",
+  "version": "1.0.0",
+  "description": "OCPP Testing Tools for CSMS",
+  "scripts": {
+    "test-station": "node ocpp-simulator.js",
+    "api-test": "node api-test.js",
+    "advanced-test": "node advanced-test.js",
+    "load-test": "node load-test.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2",
+    "axios": "^1.5.0",
+    "uuid": "^9.0.0"
+  }
+}

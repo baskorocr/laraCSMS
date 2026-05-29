@@ -3,11 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\Ocpp\OcppCommandService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -287,7 +290,7 @@ class MasterDataController extends Controller
         ]);
     }
 
-    public function chargePoints(Request $request): View
+    public function chargePoints(Request $request): View|JsonResponse
     {
         $search = trim((string) $request->query('search', ''));
         $status = trim((string) $request->query('status', ''));
@@ -295,6 +298,7 @@ class MasterDataController extends Controller
 
         $query = DB::table('charge_points')
             ->leftJoin('companies', 'companies.id', '=', 'charge_points.company_id')
+            ->leftJoin('connectors', 'connectors.charge_point_id', '=', 'charge_points.id')
             ->select(
                 'charge_points.id',
                 'charge_points.company_id',
@@ -302,6 +306,21 @@ class MasterDataController extends Controller
                 'charge_points.name',
                 'companies.name as company_name',
                 'companies.code as company_code',
+                'charge_points.ocpp_version',
+                'charge_points.status',
+                'charge_points.is_online',
+                'charge_points.created_at',
+                'charge_points.updated_at',
+                DB::raw('COUNT(DISTINCT connectors.id) as connector_count'),
+                DB::raw('GROUP_CONCAT(DISTINCT CONCAT(connectors.connector_id, ":", connectors.status) ORDER BY connectors.connector_id SEPARATOR "|") as connector_statuses')
+            )
+            ->groupBy(
+                'charge_points.id',
+                'charge_points.company_id',
+                'charge_points.charge_point_id',
+                'charge_points.name',
+                'companies.name',
+                'companies.code',
                 'charge_points.ocpp_version',
                 'charge_points.status',
                 'charge_points.is_online',
@@ -329,6 +348,12 @@ class MasterDataController extends Controller
             $query->where('charge_points.company_id', (int) $companyId);
         }
 
+        $rows = $query->get();
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['data' => $rows]);
+        }
+
         $companyOptions = DB::table('companies')->select('id', 'name')->orderBy('name')->get();
         if (! $request->user()->hasRole('admin')) {
             $companyOptions = $companyOptions->where('id', $request->user()->company_id)->values();
@@ -337,8 +362,8 @@ class MasterDataController extends Controller
         return view('master.entities', [
             'entity' => 'charge_points',
             'title' => 'Charge Points',
-            'subtitle' => 'Master charge point — klik Lihat Payload untuk stream OCPP WS (port 9001).',
-            'rows' => $query->get(),
+            'subtitle' => 'Master charge point — salin WS OCPP URL ke konfigurasi charger, lalu pantau payload realtime.',
+            'rows' => $rows,
             'filters' => [
                 'search' => $search,
                 'status' => $status,
@@ -423,33 +448,174 @@ class MasterDataController extends Controller
 
     public function transactions(Request $request): View
     {
-        $query = DB::table('transactions')
-            ->leftJoin('charge_points', 'charge_points.id', '=', 'transactions.charge_point_id')
-            ->select(
-                'transactions.id',
-                'transactions.transaction_code',
-                'charge_points.charge_point_id',
-                'transactions.status',
-                'transactions.started_at',
-                'transactions.stopped_at'
+        $isAdmin = $request->user()->hasRole('admin');
+        $filters = $this->transactionFiltersFromRequest($request);
+
+        $rows = $this->transactionsQuery($request, $filters)
+            ->limit(500)
+            ->get();
+
+        $companyOptions = DB::table('companies')->select('id', 'name')->orderBy('name')->get();
+        if (! $isAdmin) {
+            $companyOptions = $companyOptions->where('id', $request->user()->company_id)->values();
+        }
+
+        return view('master.transactions', [
+            'title' => 'Transactions',
+            'subtitle' => 'Riwayat transaksi charging — filter tanggal, export Excel, dan detail pengecasan.',
+            'rows' => $rows,
+            'filters' => $filters,
+            'isAdmin' => $isAdmin,
+            'companyOptions' => $companyOptions,
+        ]);
+    }
+
+    public function transactionDetail(Request $request, int $id): JsonResponse
+    {
+        $transaction = $this->transactionsQuery($request, $this->transactionFiltersFromRequest($request))
+            ->where('transactions.id', $id)
+            ->first();
+
+        if (! $transaction) {
+            abort(404);
+        }
+
+        $meterValues = DB::table('meter_values')
+            ->where('transaction_id', $id)
+            ->orderByDesc('sampled_at')
+            ->limit(100)
+            ->get();
+
+        if ($meterValues->isEmpty() && $transaction->started_at) {
+            $meterQuery = DB::table('meter_values')
+                ->where('charge_point_id', $transaction->charge_point_pk)
+                ->where('sampled_at', '>=', $transaction->started_at);
+
+            if ($transaction->stopped_at) {
+                $meterQuery->where('sampled_at', '<=', $transaction->stopped_at);
+            }
+
+            $meterValues = $meterQuery->orderByDesc('sampled_at')->limit(100)->get();
+        }
+
+        $energyKwh = $this->transactionEnergyKwh($transaction);
+        $duration = $this->transactionDurationLabel($transaction->started_at, $transaction->stopped_at);
+
+        $latestEnergy = $meterValues->firstWhere('measurand', 'Energy.Active.Import.Register');
+        $latestPower = $meterValues->firstWhere('measurand', 'Power.Active.Import');
+        $latestSoc = $meterValues->firstWhere('measurand', 'SoC');
+
+        return response()->json([
+            'transaction' => [
+                'id' => (int) $transaction->id,
+                'transaction_code' => (string) $transaction->transaction_code,
+                'charge_point_id' => (string) ($transaction->cp_code ?? '-'),
+                'connector_id' => $transaction->connector_no !== null ? (int) $transaction->connector_no : null,
+                'id_tag' => (string) ($transaction->id_tag ?? '-'),
+                'status' => (string) $transaction->status,
+                'meter_start' => $transaction->meter_start,
+                'meter_stop' => $transaction->meter_stop,
+                'started_at' => (string) $transaction->started_at,
+                'stopped_at' => $transaction->stopped_at ? (string) $transaction->stopped_at : null,
+                'stop_reason' => $transaction->stop_reason ? (string) $transaction->stop_reason : null,
+                'company_name' => $transaction->company_name ?? null,
+            ],
+            'summary' => [
+                'energy_kwh' => $energyKwh,
+                'duration' => $duration,
+                'latest_energy_wh' => $latestEnergy?->value,
+                'latest_power_kw' => $latestPower?->value,
+                'latest_soc_percent' => $latestSoc?->value,
+            ],
+            'meter_values' => $meterValues->map(fn ($row) => [
+                'sampled_at' => (string) $row->sampled_at,
+                'measurand' => (string) $row->measurand,
+                'value' => (float) $row->value,
+                'unit' => (string) $row->unit,
+            ])->values(),
+        ]);
+    }
+
+    public function transactionsExport(Request $request): StreamedResponse
+    {
+        $filters = $this->transactionFiltersFromRequest($request);
+        $ids = array_filter(array_map('intval', (array) $request->query('ids', [])));
+
+        $query = $this->transactionsQuery($request, $filters)
+            ->selectSub(
+                DB::table('meter_values')
+                    ->select('value')
+                    ->whereColumn('meter_values.transaction_id', 'transactions.id')
+                    ->where('measurand', 'SoC')
+                    ->orderByDesc('id')
+                    ->limit(1),
+                'latest_soc'
             )
             ->orderByDesc('transactions.id');
 
-        $this->scopeByCompany($request, $query, 'transactions.company_id');
+        if ($ids !== []) {
+            $query->whereIn('transactions.id', $ids);
+        }
 
-        return $this->renderList(
-            title: 'Transactions',
-            subtitle: 'Data transaksi charging.',
-            columns: ['ID', 'Code', 'Charge Point', 'Status', 'Started', 'Stopped'],
-            rows: $query->limit(200)->get()->map(fn ($row) => [
-                $row->id,
-                $row->transaction_code,
-                $row->charge_point_id ?? '-',
-                $row->status,
-                (string) $row->started_at,
-                (string) ($row->stopped_at ?? '-'),
-            ])->all(),
-        );
+        $rows = $query->limit(5000)->get();
+        $filename = 'transactions-'.now()->format('Y-m-d_His').'.xls';
+        $includeCompany = $request->user()->hasRole('admin');
+
+        return response()->streamDownload(function () use ($rows, $includeCompany): void {
+            echo "\xEF\xBB\xBF";
+            echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">';
+            echo '<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body>';
+            echo '<table border="1" cellspacing="0" cellpadding="4">';
+
+            $headers = [
+                'ID', 'Code', 'Charge Point', 'Connector', 'Id Tag', 'Status',
+                'Meter Start (Wh)', 'Meter Stop (Wh)', 'Energy (kWh)', 'SoC (%)',
+                'Started At', 'Stopped At', 'Duration', 'Stop Reason',
+            ];
+            if ($includeCompany) {
+                $headers[] = 'Company';
+            }
+
+            echo '<tr style="background:#f3f4f6;font-weight:bold;">';
+            foreach ($headers as $header) {
+                echo '<th>'.htmlspecialchars($header, ENT_QUOTES, 'UTF-8').'</th>';
+            }
+            echo '</tr>';
+
+            foreach ($rows as $row) {
+                $energyKwh = $this->transactionEnergyKwh($row);
+                $cells = [
+                    (string) $row->id,
+                    (string) $row->transaction_code,
+                    (string) ($row->cp_code ?? '-'),
+                    $row->connector_no !== null ? '#'.$row->connector_no : '-',
+                    (string) ($row->id_tag ?? '-'),
+                    (string) $row->status,
+                    $this->formatExportDecimal($row->meter_start),
+                    $this->formatExportDecimal($row->meter_stop),
+                    $energyKwh !== null ? $this->formatExportDecimal($energyKwh, 3) : '-',
+                    $this->formatExportDecimal($row->latest_soc ?? null),
+                    $this->formatExportDateTime($row->started_at),
+                    $this->formatExportDateTime($row->stopped_at),
+                    $this->transactionDurationLabel($row->started_at, $row->stopped_at) ?? '-',
+                    (string) ($row->stop_reason ?? '-'),
+                ];
+
+                if ($includeCompany) {
+                    $cells[] = (string) ($row->company_name ?? '-');
+                }
+
+                echo '<tr>';
+                foreach ($cells as $cell) {
+                    echo '<td style="mso-number-format:\@;">'.htmlspecialchars((string) $cell, ENT_QUOTES, 'UTF-8').'</td>';
+                }
+                echo '</tr>';
+            }
+
+            echo '</table></body></html>';
+        }, $filename, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+        ]);
     }
 
     public function meterValues(Request $request): View|JsonResponse
@@ -471,7 +637,7 @@ class MasterDataController extends Controller
 
         return view('master.sessions', [
             'title' => 'Sessions / Meter Values',
-            'subtitle' => 'Pilih charge point lalu buka Monitor untuk realtime meter values.',
+            'subtitle' => 'Status connector via Pusher (realtime). Buka Monitor untuk meter values.',
             'rows' => $rows,
             'filters' => [
                 'search' => $search,
@@ -499,6 +665,60 @@ class MasterDataController extends Controller
             'data' => $rows,
             'synced_at' => now()->toDateTimeString(),
         ]);
+    }
+
+    public function stopSession(Request $request, OcppCommandService $commandService): RedirectResponse
+    {
+        $data = Validator::make($request->all(), [
+            'charge_point_id' => ['required', 'integer'],
+            'connector_id' => ['nullable', 'integer'],
+        ])->validate();
+
+        $chargePoint = DB::table('charge_points')
+            ->select('id', 'company_id', 'charge_point_id')
+            ->where('id', (int) $data['charge_point_id'])
+            ->first();
+
+        if (! $chargePoint) {
+            return back()->withErrors(['sessions' => 'Charge point tidak ditemukan.']);
+        }
+
+        if (! $request->user()->hasRole('admin') && (int) $chargePoint->company_id !== (int) $request->user()->company_id) {
+            abort(403);
+        }
+
+        $transactionQuery = DB::table('transactions')
+            ->select('id')
+            ->where('charge_point_id', (int) $chargePoint->id)
+            ->where('status', 'ongoing')
+            ->orderByDesc('id');
+
+        if (! empty($data['connector_id'])) {
+            $connector = DB::table('connectors')
+                ->select('id')
+                ->where('charge_point_id', (int) $chargePoint->id)
+                ->where('connector_id', (int) $data['connector_id'])
+                ->first();
+
+            if ($connector) {
+                $transactionQuery->where('connector_id', (int) $connector->id);
+            }
+        }
+
+        $transaction = $transactionQuery->first();
+        if (! $transaction) {
+            return back()->withErrors(['sessions' => 'Tidak ada transaksi aktif untuk dihentikan.']);
+        }
+
+        $commandService->enqueueByChargePointCode(
+            chargePointCode: (string) $chargePoint->charge_point_id,
+            action: 'RemoteStopTransaction',
+            payload: [
+                'transactionId' => (int) $transaction->id,
+            ]
+        );
+
+        return back()->with('status', 'Perintah stop transaction berhasil di-queue.');
     }
 
     public function chargePointsOcppLive(Request $request): JsonResponse
@@ -571,11 +791,24 @@ class MasterDataController extends Controller
 
         $query = DB::table('charge_points')
             ->leftJoin('companies', 'companies.id', '=', 'charge_points.company_id')
+            ->leftJoin('connectors', 'connectors.charge_point_id', '=', 'charge_points.id')
             ->select(
                 'charge_points.id',
                 'charge_points.charge_point_id',
                 'charge_points.name',
-                'companies.name as company_name'
+                'charge_points.status',
+                'charge_points.is_online',
+                'companies.name as company_name',
+                DB::raw('COUNT(DISTINCT connectors.id) as connector_count'),
+                DB::raw('GROUP_CONCAT(DISTINCT CONCAT(connectors.connector_id, ":", connectors.status) ORDER BY connectors.connector_id SEPARATOR "|") as connector_statuses')
+            )
+            ->groupBy(
+                'charge_points.id',
+                'charge_points.charge_point_id',
+                'charge_points.name',
+                'charge_points.status',
+                'charge_points.is_online',
+                'companies.name'
             )
             ->orderBy('charge_points.charge_point_id');
 
@@ -759,6 +992,121 @@ class MasterDataController extends Controller
         DB::table($config['table'])->where('id', $id)->delete();
 
         return back()->with('status', 'Master data berhasil dihapus.');
+    }
+
+    /**
+     * @return array{search:string,date_from:string,date_to:string,status:string,company_id:string}
+     */
+    private function transactionFiltersFromRequest(Request $request): array
+    {
+        return [
+            'search' => trim((string) $request->query('search', '')),
+            'date_from' => trim((string) $request->query('date_from', '')),
+            'date_to' => trim((string) $request->query('date_to', '')),
+            'status' => trim((string) $request->query('status', '')),
+            'company_id' => trim((string) $request->query('company_id', '')),
+        ];
+    }
+
+    /**
+     * @param array{search:string,date_from:string,date_to:string,status:string,company_id:string} $filters
+     */
+    private function transactionsQuery(Request $request, array $filters): Builder
+    {
+        $query = DB::table('transactions')
+            ->leftJoin('charge_points', 'charge_points.id', '=', 'transactions.charge_point_id')
+            ->leftJoin('companies', 'companies.id', '=', 'transactions.company_id')
+            ->leftJoin('connectors', 'connectors.id', '=', 'transactions.connector_id')
+            ->select(
+                'transactions.id',
+                'transactions.company_id',
+                'transactions.charge_point_id as charge_point_pk',
+                'transactions.transaction_code',
+                'transactions.id_tag',
+                'transactions.meter_start',
+                'transactions.meter_stop',
+                'transactions.started_at',
+                'transactions.stopped_at',
+                'transactions.stop_reason',
+                'transactions.status',
+                'charge_points.charge_point_id as cp_code',
+                'companies.name as company_name',
+                'connectors.connector_id as connector_no'
+            )
+            ->orderByDesc('transactions.id');
+
+        $this->scopeByCompany($request, $query, 'transactions.company_id');
+
+        if ($filters['search'] !== '') {
+            $search = $filters['search'];
+            $query->where(function (Builder $builder) use ($search): void {
+                $builder
+                    ->where('transactions.transaction_code', 'like', "%{$search}%")
+                    ->orWhere('transactions.id_tag', 'like', "%{$search}%")
+                    ->orWhere('charge_points.charge_point_id', 'like', "%{$search}%");
+            });
+        }
+
+        if ($filters['status'] !== '') {
+            $query->where('transactions.status', $filters['status']);
+        }
+
+        if ($filters['date_from'] !== '') {
+            $query->whereDate('transactions.started_at', '>=', $filters['date_from']);
+        }
+
+        if ($filters['date_to'] !== '') {
+            $query->whereDate('transactions.started_at', '<=', $filters['date_to']);
+        }
+
+        if ($request->user()->hasRole('admin') && $filters['company_id'] !== '') {
+            $query->where('transactions.company_id', (int) $filters['company_id']);
+        }
+
+        return $query;
+    }
+
+    private function transactionEnergyKwh(object $transaction): ?float
+    {
+        if ($transaction->meter_stop === null) {
+            return null;
+        }
+
+        $delta = (float) $transaction->meter_stop - (float) $transaction->meter_start;
+
+        return $delta > 0 ? round($delta / 1000, 3) : 0.0;
+    }
+
+    private function transactionDurationLabel(?string $startedAt, ?string $stoppedAt): ?string
+    {
+        if (! $startedAt || ! $stoppedAt) {
+            return null;
+        }
+
+        $seconds = Carbon::parse($startedAt)->diffInSeconds(Carbon::parse($stoppedAt));
+        $hours = intdiv($seconds, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
+        $secs = $seconds % 60;
+
+        return sprintf('%02d:%02d:%02d', $hours, $minutes, $secs);
+    }
+
+    private function formatExportDateTime(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        return Carbon::parse((string) $value)->format('Y-m-d H:i:s');
+    }
+
+    private function formatExportDecimal(mixed $value, int $decimals = 3): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        return number_format((float) $value, $decimals, '.', '');
     }
 
     private function scopeByCompany(Request $request, Builder $query, string $column): void

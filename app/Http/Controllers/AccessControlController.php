@@ -292,7 +292,7 @@ class AccessControlController extends Controller
     private function authorizeAccess(Request $request): void
     {
         $user = $request->user();
-        if ($user->hasRole('admin') || $user->can('manage_roles') || $user->can('manage_permissions')) {
+        if ($user->hasRole('admin') || $user->canAccessRoute('access-control.roles.index')) {
             return;
         }
 
@@ -460,14 +460,8 @@ class AccessControlController extends Controller
 
     private function isAssignablePermissionName(string $permissionName): bool
     {
-        if (! str_starts_with($permissionName, 'access-control.')) {
-            return true;
-        }
+        $sidebar = config('permissions.sidebar', []);
 
-        return in_array($permissionName, [
-            'access-control.index',
-            'access-control.roles.index',
-            'access-control.permissions.index',
-        ], true);
+        return in_array($permissionName, $sidebar, true);
     }
 }
