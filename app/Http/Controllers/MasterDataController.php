@@ -721,6 +721,72 @@ class MasterDataController extends Controller
         return back()->with('status', 'Perintah stop transaction berhasil di-queue.');
     }
 
+    public function startChargeTest(Request $request, OcppCommandService $commandService): RedirectResponse
+    {
+        $data = Validator::make($request->all(), [
+            'charge_point_id' => ['required', 'integer'],
+            'connector_id' => ['required', 'integer', 'min:1'],
+            'id_tag' => ['nullable', 'string', 'max:36'],
+        ])->validate();
+
+        $chargePoint = DB::table('charge_points')
+            ->select('id', 'company_id', 'charge_point_id', 'ocpp_version', 'is_online')
+            ->where('id', (int) $data['charge_point_id'])
+            ->first();
+
+        if (! $chargePoint) {
+            return back()->withErrors(['charge_points' => 'Charge point tidak ditemukan.']);
+        }
+
+        if (! $request->user()->hasRole('admin') && (int) $chargePoint->company_id !== (int) $request->user()->company_id) {
+            abort(403);
+        }
+
+        $connector = DB::table('connectors')
+            ->select('id', 'status')
+            ->where('charge_point_id', (int) $chargePoint->id)
+            ->where('connector_id', (int) $data['connector_id'])
+            ->first();
+
+        if (! $connector) {
+            return back()->withErrors(['charge_points' => 'Connector tidak ditemukan pada charge point ini.']);
+        }
+
+        if (in_array((string) $connector->status, ['Charging', 'Occupied'], true)) {
+            return back()->withErrors(['charge_points' => "Connector #{$data['connector_id']} sedang charging. Stop dulu sebelum test ulang."]);
+        }
+
+        if (! $chargePoint->is_online) {
+            return back()->withErrors(['charge_points' => 'Charge point offline — tidak bisa start transaction.']);
+        }
+
+        $idTag = trim((string) ($data['id_tag'] ?? ''));
+        if ($idTag === '') {
+            $idTag = 'TEST_TAG_001';
+        }
+
+        $start = $commandService->buildRemoteStartPayload(
+            (string) ($chargePoint->ocpp_version ?: '1.6'),
+            (int) $data['connector_id'],
+            $idTag
+        );
+
+        $commandService->enqueueByChargePointCode(
+            chargePointCode: (string) $chargePoint->charge_point_id,
+            action: $start['action'],
+            payload: $start['payload']
+        );
+
+        $onlineHint = $chargePoint->is_online
+            ? 'Perintah dikirim ke charge point.'
+            : 'Charge point offline — perintah menunggu koneksi WebSocket.';
+
+        return back()->with(
+            'status',
+            "Start test connector #{$data['connector_id']} ({$start['action']}, idTag: {$idTag}) berhasil di-queue. {$onlineHint}"
+        );
+    }
+
     public function chargePointsOcppLive(Request $request): JsonResponse
     {
         $chargePointCode = trim((string) $request->query('charge_point_id', ''));

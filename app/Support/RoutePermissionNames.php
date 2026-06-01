@@ -16,7 +16,7 @@ class RoutePermissionNames
 
         $actionSuffixes = [
             'index', 'create', 'store', 'edit', 'update', 'destroy', 'show',
-            'live', 'export', 'detail', 'stop', 'download', 'ocpp-live',
+            'live', 'export', 'detail', 'stop', 'start', 'download', 'ocpp-live',
             'sync-routes', 'sync-permissions', 'assign-role',
         ];
 

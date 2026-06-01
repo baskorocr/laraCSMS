@@ -39,6 +39,7 @@ Route::middleware(['auth', 'route_permission'])->group(function () {
         Route::get('/sessions', [MasterDataController::class, 'meterValues'])->name('sessions');
         Route::get('/sessions/live', [MasterDataController::class, 'sessionsLive'])->name('sessions.live');
         Route::post('/sessions/stop', [MasterDataController::class, 'stopSession'])->name('sessions.stop');
+        Route::post('/charge-points/start', [MasterDataController::class, 'startChargeTest'])->name('charge-points.start');
         Route::get('/transactions', [MasterDataController::class, 'transactions'])->name('transactions');
         Route::get('/transactions/export', [MasterDataController::class, 'transactionsExport'])->name('transactions.export');
         Route::get('/transactions/{id}/detail', [MasterDataController::class, 'transactionDetail'])->name('transactions.detail');

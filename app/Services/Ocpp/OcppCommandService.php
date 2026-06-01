@@ -44,6 +44,60 @@ class OcppCommandService
     }
 
     /**
+     * @return array{action: string, payload: array<string, mixed>}
+     */
+    public function buildRemoteStartPayload(string $ocppVersion, int $connectorId, string $idTag = 'TEST_TAG_001'): array
+    {
+        if ($ocppVersion === '2.1') {
+            return [
+                'action' => 'RequestStartTransaction',
+                'payload' => [
+                    'evseId' => $connectorId,
+                    'remoteStartId' => random_int(1, 999999),
+                    'idToken' => [
+                        'idToken' => $idTag,
+                        'type' => 'ISO14443',
+                    ],
+                ],
+            ];
+        }
+
+        return [
+            'action' => 'RemoteStartTransaction',
+            'payload' => [
+                'idTag' => $idTag,
+                'connectorId' => $connectorId,
+            ],
+        ];
+    }
+
+    public function enqueueRemoteStartByChargePointCode(
+        string $chargePointCode,
+        int $connectorId,
+        string $idTag = 'TEST_TAG_001'
+    ): int {
+        $station = DB::table('charge_points')
+            ->select('id', 'company_id', 'charge_point_id', 'ocpp_version')
+            ->where('charge_point_id', $chargePointCode)
+            ->first();
+
+        abort_unless($station !== null, 404, "Charge point {$chargePointCode} not found.");
+
+        $start = $this->buildRemoteStartPayload(
+            (string) ($station->ocpp_version ?: '1.6'),
+            $connectorId,
+            $idTag
+        );
+
+        return $this->enqueue([
+            'charge_point_pk' => (int) $station->id,
+            'company_id' => (int) $station->company_id,
+            'charge_point_code' => (string) $station->charge_point_id,
+            'ocpp_version' => (string) ($station->ocpp_version ?: '1.6'),
+        ], $start['action'], $start['payload']);
+    }
+
+    /**
      * @param array<string,mixed> $stationContext
      * @return array<int, array<int, mixed>>
      */

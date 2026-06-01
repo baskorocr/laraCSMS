@@ -35,6 +35,34 @@
                     badge.className = `inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${connectorStatusClass(status)}`;
                 });
             });
+
+            updateStartButtons(row);
+        };
+
+        const updateStartButtons = (row) => {
+            if (!row) {
+                return;
+            }
+
+            const onlineCell = row.querySelector('[data-charge-point-online]');
+            const isOnline = onlineCell?.textContent?.trim() === 'Online';
+
+            row.querySelectorAll('[data-start-button]').forEach((button) => {
+                const connectorId = button.getAttribute('data-start-connector');
+                const badge = row.querySelector(`[data-connector-badge="${connectorId}"]`);
+                const statusMatch = badge?.textContent?.match(/:\s*(.+)$/);
+                const status = statusMatch ? statusMatch[1].trim() : '';
+                const isCharging = status === 'Charging' || status === 'Occupied';
+                const canStart = isOnline && ! isCharging;
+
+                button.disabled = ! canStart;
+                button.className = `inline-flex rounded px-2 py-1 text-[11px] font-medium text-white ${canStart ? 'bg-emerald-600 hover:bg-emerald-700' : 'cursor-not-allowed bg-gray-400'}`;
+                button.title = ! isOnline
+                    ? 'Charge point offline'
+                    : (canStart
+                        ? `Remote start transaction untuk test connector #${connectorId}`
+                        : 'Connector sedang charging');
+            });
         };
 
         const syncBadgesFromChargePointStatus = (row, status) => {
@@ -78,6 +106,9 @@
                 applyConnectorStatuses(row, payload.connector_statuses);
             } else if (payload.status) {
                 syncBadgesFromChargePointStatus(row, payload.status);
+                updateStartButtons(row);
+            } else {
+                updateStartButtons(row);
             }
         };
 

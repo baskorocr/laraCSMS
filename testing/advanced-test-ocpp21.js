@@ -52,8 +52,40 @@ class OCPP21Tester {
       console.error(`❌ Error for ${messageId}:`, actionOrPayload, payload);
     } else if (messageType === 2) {
       console.log(`📞 Server call: ${actionOrPayload}`, payload);
-      this.sendCallResult(messageId, {});
+      this.handleServerCall(messageId, actionOrPayload, payload);
     }
+  }
+
+  handleServerCall(messageId, action, payload) {
+    if (action === 'RequestStartTransaction') {
+      this.sendCallResult(messageId, { status: 'Accepted' });
+      const evseId = payload?.evseId ?? 1;
+
+      setTimeout(() => {
+        this.sendStatusNotification(evseId, 'Occupied');
+        this.sendTransactionEvent('Started', 'RemoteStart');
+        this.isCharging = true;
+        this.testStartTime = Date.now();
+        this.startMeterValues();
+      }, 1000);
+
+      return;
+    }
+
+    if (action === 'RequestStopTransaction') {
+      this.sendCallResult(messageId, { status: 'Accepted' });
+
+      setTimeout(() => {
+        this.isCharging = false;
+        this.stopMeterValues();
+        this.sendTransactionEvent('Ended', 'RemoteStop');
+        this.sendStatusNotification(payload?.evseId ?? 1, 'Available');
+      }, 1000);
+
+      return;
+    }
+
+    this.sendCallResult(messageId, {});
   }
 
   sendMessage(message) {

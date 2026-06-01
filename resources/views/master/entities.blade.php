@@ -316,7 +316,7 @@
                                             <div class="flex flex-col gap-1">
                                                 <span class="font-medium">{{ $row->connector_count }} connector(s)</span>
                                                 @if ($row->connector_statuses)
-                                                    <div class="flex flex-wrap gap-1">
+                                                    <div class="flex flex-wrap gap-2">
                                                         @foreach (explode('|', $row->connector_statuses) as $connectorStatus)
                                                             @php
                                                                 [$connectorId, $status] = explode(':', $connectorStatus);
@@ -327,13 +327,40 @@
                                                                     'Faulted', 'Unavailable' => 'bg-red-100 text-red-800',
                                                                     default => 'bg-gray-100 text-gray-800'
                                                                 };
+                                                                $canStart = $row->is_online && ! in_array($status, ['Charging', 'Occupied'], true);
+                                                                $startTitle = ! $row->is_online
+                                                                    ? 'Charge point offline'
+                                                                    : ($canStart
+                                                                        ? 'Remote start transaction untuk test connector #' . $connectorId
+                                                                        : 'Connector sedang charging');
                                                             @endphp
-                                                            <span
-                                                                class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium {{ $statusColor }}"
-                                                                data-connector-badge="{{ $connectorId }}"
-                                                            >
-                                                                #{{ $connectorId }}: {{ $status }}
-                                                            </span>
+                                                            <div class="flex flex-col items-start gap-1">
+                                                                <span
+                                                                    class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium {{ $statusColor }}"
+                                                                    data-connector-badge="{{ $connectorId }}"
+                                                                >
+                                                                    #{{ $connectorId }}: {{ $status }}
+                                                                </span>
+                                                                <form
+                                                                    method="POST"
+                                                                    action="{{ route('master.charge-points.start') }}"
+                                                                    onsubmit="return confirm('Start test charging di connector #{{ $connectorId }}?\n\nPastikan charge point online dan connector siap.')"
+                                                                >
+                                                                    @csrf
+                                                                    <input type="hidden" name="charge_point_id" value="{{ $row->id }}">
+                                                                    <input type="hidden" name="connector_id" value="{{ $connectorId }}">
+                                                                    <button
+                                                                        type="submit"
+                                                                        class="inline-flex rounded px-2 py-1 text-[11px] font-medium text-white {{ $canStart ? 'bg-emerald-600 hover:bg-emerald-700' : 'cursor-not-allowed bg-gray-400' }}"
+                                                                        data-start-button
+                                                                        data-start-connector="{{ $connectorId }}"
+                                                                        @disabled(! $canStart)
+                                                                        title="{{ $startTitle }}"
+                                                                    >
+                                                                        Start #{{ $connectorId }}
+                                                                    </button>
+                                                                </form>
+                                                            </div>
                                                         @endforeach
                                                     </div>
                                                 @endif
