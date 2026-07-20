@@ -18,6 +18,9 @@ class OcppWebSocketServer
     /** @var array<int, array<string, mixed>> */
     private array $clientMeta = [];
 
+    /** @var array<int, array{pk:int,code:string,time:float}> */
+    private array $pendingOffline = [];
+
     public function __construct(
         private readonly OcppMessageService $messageService,
         private readonly OcppCommandService $commandService,
@@ -47,6 +50,8 @@ class OcppWebSocketServer
             if (@stream_select($read, $write, $except, 1) === false) {
                 continue;
             }
+
+            $this->flushPendingOffline();
 
             foreach ($read as $socket) {
                 if ($socket === $this->server) {
@@ -94,28 +99,37 @@ class OcppWebSocketServer
             sha1($headers['sec-websocket-key'].'258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)
         );
 
+        $requestedProtocol = trim((string) ($headers['sec-websocket-protocol'] ?? ''));
+        $subprotocol = '';
+        if ($requestedProtocol !== '') {
+            $first = trim(explode(',', $requestedProtocol)[0]);
+            $subprotocol = "Sec-WebSocket-Protocol: {$first}\r\n";
+        }
+
         fwrite($client, implode("\r\n", [
             'HTTP/1.1 101 Switching Protocols',
             'Upgrade: websocket',
             'Connection: Upgrade',
             'Sec-WebSocket-Accept: '.$acceptKey,
-            "\r\n",
-        ]));
+        ])."\r\n".$subprotocol."\r\n");
 
         $id = (int) $client;
         $this->clients[$id] = $client;
         $this->clientMeta[$id] = $station;
 
-        DB::table('charge_points')
-            ->where('id', (int) $station['charge_point_pk'])
-            ->update([
-                'is_online' => true,
-                'last_heartbeat_at' => now(),
-                'updated_at' => now(),
-            ]);
-        $this->realtimePublisher->publishById((int) $station['charge_point_pk']);
+        $pk = (int) $station['charge_point_pk'];
+        $wasReconnect = isset($this->pendingOffline[$pk]);
+        unset($this->pendingOffline[$pk]);
 
-        $this->writeConsole("[OCPP] connected {$station['charge_point_code']} — siap terima payload");
+        DB::table('charge_points')
+            ->where('id', $pk)
+            ->update(['is_online' => true, 'last_heartbeat_at' => now(), 'updated_at' => now()]);
+
+        if (! $wasReconnect) {
+            $this->realtimePublisher->publishById($pk);
+        }
+
+        $this->writeConsole("[OCPP] connected {$station['charge_point_code']}".($wasReconnect ? ' (reconnect)' : '') ." — siap terima payload");
     }
 
     /**
@@ -166,29 +180,44 @@ class OcppWebSocketServer
     {
         $id = (int) $socket;
         if (isset($this->clientMeta[$id])) {
-            $chargePointPk = (int) $this->clientMeta[$id]['charge_point_pk'];
-            DB::table('connectors')
-                ->where('charge_point_id', $chargePointPk)
-                ->whereIn('status', ['Charging', 'Occupied'])
-                ->update([
-                    'status' => 'Available',
-                    'updated_at' => now(),
-                ]);
-
-            DB::table('charge_points')
-                ->where('id', $chargePointPk)
-                ->update([
-                    'is_online' => false,
-                    'status' => 'Available',
-                    'updated_at' => now(),
-                ]);
-
-            $this->realtimePublisher->publishById($chargePointPk);
-            $this->writeConsole("[OCPP] disconnected {$this->clientMeta[$id]['charge_point_code']}");
+            $pk   = (int) $this->clientMeta[$id]['charge_point_pk'];
+            $code = (string) $this->clientMeta[$id]['charge_point_code'];
+            $this->pendingOffline[$pk] = ['pk' => $pk, 'code' => $code, 'time' => microtime(true)];
+            $this->writeConsole("[OCPP] disconnected {$code} (grace 5s)");
         }
 
         @fclose($socket);
         unset($this->clients[$id], $this->clientMeta[$id]);
+    }
+
+    private function flushPendingOffline(): void
+    {
+        $now = microtime(true);
+        foreach ($this->pendingOffline as $pk => $entry) {
+            if (($now - $entry['time']) < 5.0) {
+                continue;
+            }
+            DB::table('connectors')
+                ->where('charge_point_id', $pk)
+                ->update(['status' => 'Unavailable', 'updated_at' => now()]);
+            DB::table('charge_points')
+                ->where('id', $pk)
+                ->update(['is_online' => false, 'status' => 'Unavailable', 'updated_at' => now()]);
+            // Auto-close transaksi ongoing yang tertinggal
+            DB::table('transactions')
+                ->where('charge_point_id', $pk)
+                ->where('status', 'ongoing')
+                ->update([
+                    'status'      => 'completed',
+                    'meter_stop'  => DB::raw('meter_start'),
+                    'stopped_at'  => now(),
+                    'stop_reason' => 'PowerLoss',
+                    'updated_at'  => now(),
+                ]);
+            $this->realtimePublisher->publishById($pk);
+            $this->writeConsole("[OCPP] {$entry['code']} offline confirmed");
+            unset($this->pendingOffline[$pk]);
+        }
     }
 
     private function writeConsole(string $message): void

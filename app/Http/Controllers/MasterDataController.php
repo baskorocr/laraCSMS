@@ -919,39 +919,11 @@ class MasterDataController extends Controller
                 'charge_points.last_heartbeat_at',
                 'companies.name as company_name'
             )
-            ->selectSub(
-                DB::table('meter_values')
-                    ->selectRaw('MAX(sampled_at)')
-                    ->whereColumn('meter_values.charge_point_id', 'charge_points.id'),
-                'last_sampled_at'
-            )
-            ->selectSub(
-                DB::table('meter_values')
-                    ->select('value')
-                    ->whereColumn('meter_values.charge_point_id', 'charge_points.id')
-                    ->where('measurand', 'Energy.Active.Import.Register')
-                    ->orderByDesc('id')
-                    ->limit(1),
-                'latest_energy'
-            )
-            ->selectSub(
-                DB::table('meter_values')
-                    ->select('value')
-                    ->whereColumn('meter_values.charge_point_id', 'charge_points.id')
-                    ->where('measurand', 'Power.Active.Import')
-                    ->orderByDesc('id')
-                    ->limit(1),
-                'latest_power'
-            )
-            ->selectSub(
-                DB::table('meter_values')
-                    ->select('value')
-                    ->whereColumn('meter_values.charge_point_id', 'charge_points.id')
-                    ->where('measurand', 'SoC')
-                    ->orderByDesc('id')
-                    ->limit(1),
-                'latest_soc'
-            )
+            ->selectRaw('IF(charge_points.is_online, (SELECT MAX(mv.sampled_at) FROM meter_values mv WHERE mv.charge_point_id = charge_points.id), NULL) as last_sampled_at')
+            ->selectRaw('(SELECT COUNT(*) FROM transactions t WHERE t.charge_point_id = charge_points.id AND t.status = ?) as active_transaction_count', ['ongoing'])
+            ->selectRaw('IF(charge_points.is_online AND EXISTS(SELECT 1 FROM transactions t WHERE t.charge_point_id = charge_points.id AND t.status = ?), (SELECT mv.value FROM meter_values mv WHERE mv.charge_point_id = charge_points.id AND mv.measurand = ? ORDER BY mv.id DESC LIMIT 1), NULL) as latest_energy', ['ongoing', 'Energy.Active.Import.Register'])
+            ->selectRaw('IF(charge_points.is_online AND EXISTS(SELECT 1 FROM transactions t WHERE t.charge_point_id = charge_points.id AND t.status = ?), (SELECT mv.value FROM meter_values mv WHERE mv.charge_point_id = charge_points.id AND mv.measurand = ? ORDER BY mv.id DESC LIMIT 1), NULL) as latest_power', ['ongoing', 'Power.Active.Import'])
+            ->selectRaw('IF(charge_points.is_online AND EXISTS(SELECT 1 FROM transactions t WHERE t.charge_point_id = charge_points.id AND t.status = ?), (SELECT mv.value FROM meter_values mv WHERE mv.charge_point_id = charge_points.id AND mv.measurand = ? ORDER BY mv.id DESC LIMIT 1), NULL) as latest_soc', ['ongoing', 'SoC'])
             ->orderBy('charge_points.charge_point_id');
 
         $this->scopeByCompany($request, $query, 'charge_points.company_id');

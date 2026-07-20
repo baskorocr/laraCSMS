@@ -294,7 +294,9 @@
             setMonitorCard('status', item.status || '-');
             setMonitorCard('online', item.is_online ? 'Online' : 'Offline');
 
-            if (item.is_online) {
+            const hasActiveTransaction = item.active_transaction_count > 0;
+
+            if (item.is_online && hasActiveTransaction) {
                 setMonitorCard('energy', item.latest_energy ?? '-');
                 setMonitorCard('power', item.latest_power ?? '-');
                 setMonitorCard('soc', item.latest_soc ?? '-');
@@ -464,15 +466,21 @@
         };
 
         const updateUnlockButtonState = (status) => {
-            if (!unlockButton || !selectedConnectorId) {
-                return;
-            }
+            if (!selectedConnectorId) return;
 
             const isCharging = status === 'Charging';
-            unlockButton.disabled = isCharging;
-            unlockButton.title = isCharging
-                ? 'Tidak bisa unlock saat charging'
-                : `Unlock connector #${selectedConnectorId}`;
+
+            if (stopButton) {
+                stopButton.disabled = !isCharging;
+                stopButton.title = isCharging ? '' : 'Connector tidak sedang charging';
+            }
+
+            if (unlockButton) {
+                unlockButton.disabled = isCharging;
+                unlockButton.title = isCharging
+                    ? 'Tidak bisa unlock saat charging'
+                    : `Unlock connector #${selectedConnectorId}`;
+            }
         };
 
         const openModal = (button) => {
@@ -492,10 +500,10 @@
             }
             if (stopButton) {
                 const hasConnector = !!selectedConnectorId;
-                stopButton.disabled = !hasConnector;
+                stopButton.disabled = true;
                 stopButton.textContent = hasConnector ? `Stop Connector #${selectedConnectorId}` : 'Stop Connector';
                 stopButton.title = hasConnector
-                    ? `Stop transaksi aktif di connector #${selectedConnectorId}`
+                    ? 'Menunggu status connector...'
                     : 'Buka monitor via tombol Monitor #connector';
             }
 

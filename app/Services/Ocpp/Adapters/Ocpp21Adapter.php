@@ -5,13 +5,15 @@ namespace App\Services\Ocpp\Adapters;
 use App\Services\ChargePointRealtimePublisher;
 use App\Services\Ocpp\ChargingService;
 use App\Services\Ocpp\Contracts\OcppAdapterInterface;
+use App\Services\Ocpp\TransactionService;
 use Illuminate\Support\Facades\DB;
 
 class Ocpp21Adapter implements OcppAdapterInterface
 {
     public function __construct(
         private readonly ChargingService $chargingService,
-        private readonly ChargePointRealtimePublisher $realtimePublisher
+        private readonly ChargePointRealtimePublisher $realtimePublisher,
+        private readonly TransactionService $transactionService
     ) {
     }
     public function handleCall(string $action, array $payload, array $context): ?array
@@ -118,41 +120,37 @@ class Ocpp21Adapter implements OcppAdapterInterface
                 ->first();
 
             if (! $existingTransaction) {
-                DB::table('transactions')->insert([
-                    'company_id' => $context['company_id'],
-                    'connector_id' => $connector->id,
-                    'id_tag' => $idToken,
-                    'meter_start' => (int) ($payload['meterValue'][0]['sampledValue'][0]['value'] ?? 0),
-                    'started_at' => now(),
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                $this->transactionService->handleStartTransaction($context, [
+                    'connectorId' => $connectorNo,
+                    'idTag' => $idToken,
+                    'meterStart' => (int) ($payload['meterValue'][0]['sampledValue'][0]['value'] ?? 0),
+                    'timestamp' => $payload['timestamp'] ?? null,
                 ]);
+            } else {
+                DB::table('connectors')
+                    ->where('id', $connector->id)
+                    ->update(['status' => 'Charging', 'updated_at' => now()]);
+
+                DB::table('charge_points')
+                    ->where('id', $context['charge_point_pk'])
+                    ->update(['status' => 'Charging', 'is_online' => true, 'updated_at' => now()]);
             }
-
-            DB::table('connectors')
-                ->where('id', $connector->id)
-                ->update(['status' => 'Charging', 'updated_at' => now()]);
-
-            DB::table('charge_points')
-                ->where('id', $context['charge_point_pk'])
-                ->update(['status' => 'Charging', 'is_online' => true, 'updated_at' => now()]);
         }
 
         if ($eventType === 'Ended') {
             $transaction = DB::table('transactions')
                 ->where('connector_id', $connector->id)
-                ->whereNull('stopped_at')
+                ->where('status', 'ongoing')
                 ->first();
 
             if ($transaction) {
-                $meterStop = (int) ($payload['meterValue'][0]['sampledValue'][0]['value'] ?? 0);
-
                 DB::table('transactions')
                     ->where('id', $transaction->id)
                     ->update([
-                        'meter_stop' => $meterStop,
+                        'meter_stop' => (int) ($payload['meterValue'][0]['sampledValue'][0]['value'] ?? 0),
                         'stopped_at' => now(),
                         'stop_reason' => $payload['triggerReason'] ?? 'Local',
+                        'status' => 'completed',
                         'updated_at' => now(),
                     ]);
             }
@@ -204,7 +202,7 @@ class Ocpp21Adapter implements OcppAdapterInterface
     {
         foreach ($meterValues as $meterValue) {
             $sampledValues = $meterValue['sampledValue'] ?? [];
-            $timestamp = $meterValue['timestamp'] ?? now()->toIso8601String();
+            $timestamp = now()->parse($meterValue['timestamp'] ?? now())->toDateTimeString();
 
             foreach ($sampledValues as $sample) {
                 $measurand = (string) ($sample['measurand'] ?? 'Energy.Active.Import.Register');

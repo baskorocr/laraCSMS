@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
 class OCPPTester {
-  constructor(chargePointId = 'TEST_CP_001', serverUrl = 'ws://localhost:8082') {
+  constructor(chargePointId = 'TEST_CP_001', serverUrl = 'ws://127.0.0.1:9001/ocpp') {
     this.chargePointId = chargePointId;
     this.serverUrl = `${serverUrl}/${chargePointId}`;
     this.ws = null;
@@ -13,7 +13,7 @@ class OCPPTester {
     return new Promise((resolve, reject) => {
       console.log(`🔌 Connecting to ${this.serverUrl}`);
       
-      this.ws = new WebSocket(this.serverUrl);
+      this.ws = new WebSocket(this.serverUrl, ['ocpp1.6']);
 
       this.ws.on('open', () => {
         console.log('✅ Connected to OCPP server');

@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
 class OCPP21Tester {
-  constructor(chargePointId = 'CP-TEST-201', serverUrl = 'ws://localhost:9001/ocpp') {
+  constructor(chargePointId = 'CP-TEST-201', serverUrl = 'ws://127.0.0.1:9001/ocpp') {
     this.chargePointId = chargePointId;
     this.serverUrl = `${serverUrl}/${chargePointId}`;
     this.ws = null;
@@ -18,7 +18,7 @@ class OCPP21Tester {
     return new Promise((resolve, reject) => {
       console.log(`🔌 Connecting to ${this.serverUrl} (OCPP 2.1)`);
       
-      this.ws = new WebSocket(this.serverUrl);
+      this.ws = new WebSocket(this.serverUrl, ['ocpp2.1']);
 
       this.ws.on('open', () => {
         console.log(`✅ Connected as ${this.chargePointId}`);
@@ -396,7 +396,7 @@ class OCPP21Tester {
 
 async function main() {
   const chargePointId = process.argv[2] || 'CP-TEST-201';
-  const serverUrl = process.argv[3] || 'ws://localhost:9001/ocpp';
+  const serverUrl = process.argv[3] || 'ws://127.0.0.1:9001/ocpp';
   
   console.log('🚀 LaraCSMS OCPP 2.1 Advanced Tester');
   console.log('====================================');
