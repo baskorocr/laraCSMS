@@ -63,6 +63,7 @@ Route::middleware(['auth', 'route_permission'])->group(function () {
             Route::post('/companies', [MasterDataController::class, 'storeCompany'])->name('companies.store');
             Route::patch('/companies/{id}', [MasterDataController::class, 'updateCompany'])->name('companies.update');
             Route::delete('/companies/{id}', [MasterDataController::class, 'destroyCompany'])->name('companies.destroy');
+            Route::post('/companies/{id}/regenerate-token', [MasterDataController::class, 'regenerateCompanyToken'])->name('companies.regenerate-token');
             Route::post('/charge-points', [MasterDataController::class, 'storeChargePoint'])->name('charge-points.store');
             Route::patch('/charge-points/{id}', [MasterDataController::class, 'updateChargePoint'])->name('charge-points.update');
             Route::delete('/charge-points/{id}', [MasterDataController::class, 'destroyChargePoint'])->name('charge-points.destroy');

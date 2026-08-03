@@ -26,7 +26,7 @@ class MasterDataController extends Controller
         $status = $request->query('status');
 
         $query = DB::table('companies')
-            ->select('id', 'code', 'name', 'timezone', 'is_active', 'created_at')
+            ->select('id', 'code', 'name', 'timezone', 'is_active', 'api_token', 'created_at')
             ->orderBy('name');
 
         if (! $request->user()->hasRole('admin')) {
@@ -154,6 +154,7 @@ class MasterDataController extends Controller
             'name' => $data['name'],
             'timezone' => $data['timezone'],
             'is_active' => (bool) $request->boolean('is_active'),
+            'api_token' => $this->generateCompanyToken(strtolower($data['code'])),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -179,6 +180,25 @@ class MasterDataController extends Controller
         ]);
 
         return back()->with('status', 'Company berhasil diperbarui.');
+    }
+
+    public function regenerateCompanyToken(Request $request, int $id): RedirectResponse|JsonResponse
+    {
+        $company = DB::table('companies')->select('code')->where('id', $id)->first();
+        abort_unless((bool) $company, 404);
+
+        $newToken = $this->generateCompanyToken((string) $company->code);
+
+        DB::table('companies')->where('id', $id)->update([
+            'api_token' => $newToken,
+            'updated_at' => now(),
+        ]);
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['token' => $newToken]);
+        }
+
+        return back()->with('status', 'API token berhasil di-regenerate.');
     }
 
     public function destroyCompany(Request $request, int $id): RedirectResponse
@@ -309,6 +329,9 @@ class MasterDataController extends Controller
                 'charge_points.ocpp_version',
                 'charge_points.status',
                 'charge_points.is_online',
+                'charge_points.price_per_kwh',
+                'charge_points.latitude',
+                'charge_points.longitude',
                 'charge_points.created_at',
                 'charge_points.updated_at',
                 DB::raw('COUNT(DISTINCT connectors.id) as connector_count'),
@@ -324,6 +347,9 @@ class MasterDataController extends Controller
                 'charge_points.ocpp_version',
                 'charge_points.status',
                 'charge_points.is_online',
+                'charge_points.price_per_kwh',
+                'charge_points.latitude',
+                'charge_points.longitude',
                 'charge_points.created_at',
                 'charge_points.updated_at'
             )
@@ -399,6 +425,9 @@ class MasterDataController extends Controller
             'ocpp_version' => ['required', 'string', 'max:10'],
             'status' => ['required', 'string', 'max:50'],
             'is_online' => ['nullable', 'boolean'],
+            'price_per_kwh' => ['nullable', 'numeric', 'min:0'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ])->validate();
 
         DB::table('charge_points')->insert([
@@ -408,6 +437,9 @@ class MasterDataController extends Controller
             'ocpp_version' => $data['ocpp_version'],
             'status' => $data['status'],
             'is_online' => (bool) $request->boolean('is_online'),
+            'price_per_kwh' => isset($data['price_per_kwh']) ? (float) $data['price_per_kwh'] : null,
+            'latitude' => isset($data['latitude']) && $data['latitude'] !== '' ? (float) $data['latitude'] : null,
+            'longitude' => isset($data['longitude']) && $data['longitude'] !== '' ? (float) $data['longitude'] : null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -424,6 +456,9 @@ class MasterDataController extends Controller
             'ocpp_version' => ['required', 'string', 'max:10'],
             'status' => ['required', 'string', 'max:50'],
             'is_online' => ['nullable', 'boolean'],
+            'price_per_kwh' => ['nullable', 'numeric', 'min:0'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ])->validate();
 
         DB::table('charge_points')->where('id', $id)->update([
@@ -433,6 +468,9 @@ class MasterDataController extends Controller
             'ocpp_version' => $data['ocpp_version'],
             'status' => $data['status'],
             'is_online' => (bool) $request->boolean('is_online'),
+            'price_per_kwh' => isset($data['price_per_kwh']) ? (float) $data['price_per_kwh'] : null,
+            'latitude' => isset($data['latitude']) && $data['latitude'] !== '' ? (float) $data['latitude'] : null,
+            'longitude' => isset($data['longitude']) && $data['longitude'] !== '' ? (float) $data['longitude'] : null,
             'updated_at' => now(),
         ]);
 
@@ -569,7 +607,7 @@ class MasterDataController extends Controller
 
             $headers = [
                 'ID', 'Code', 'Charge Point', 'Connector', 'Id Tag', 'Status',
-                'Meter Start (Wh)', 'Meter Stop (Wh)', 'Energy (kWh)', 'SoC (%)',
+                'Meter Start (Wh)', 'Meter Stop (Wh)', 'Energy (kWh)', 'Biaya (Rp)', 'SoC (%)',
                 'Started At', 'Stopped At', 'Duration', 'Stop Reason',
             ];
             if ($includeCompany) {
@@ -584,6 +622,9 @@ class MasterDataController extends Controller
 
             foreach ($rows as $row) {
                 $energyKwh = $this->transactionEnergyKwh($row);
+                $biaya = ($energyKwh !== null && isset($row->price_per_kwh) && $row->price_per_kwh !== null)
+                    ? $energyKwh * (float) $row->price_per_kwh
+                    : null;
                 $cells = [
                     (string) $row->id,
                     (string) $row->transaction_code,
@@ -594,6 +635,7 @@ class MasterDataController extends Controller
                     $this->formatExportDecimal($row->meter_start),
                     $this->formatExportDecimal($row->meter_stop),
                     $energyKwh !== null ? $this->formatExportDecimal($energyKwh, 3) : '-',
+                    $biaya !== null ? number_format($biaya, 0, '.', '') : '-',
                     $this->formatExportDecimal($row->latest_soc ?? null),
                     $this->formatExportDateTime($row->started_at),
                     $this->formatExportDateTime($row->stopped_at),
@@ -1068,6 +1110,7 @@ class MasterDataController extends Controller
                 'transactions.stop_reason',
                 'transactions.status',
                 'charge_points.charge_point_id as cp_code',
+                'charge_points.price_per_kwh',
                 'companies.name as company_name',
                 'connectors.connector_id as connector_no'
             )
@@ -1370,6 +1413,20 @@ class MasterDataController extends Controller
         }
 
         return (int) $value;
+    }
+
+    private function generateCompanyToken(string $code): string
+    {
+        $header    = rtrim(strtr(base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
+        $payload   = rtrim(strtr(base64_encode(json_encode([
+            'sub'  => $code,
+            'iat'  => now()->timestamp,
+            'jti'  => \Illuminate\Support\Str::random(16),
+        ])), '+/', '-_'), '=');
+        $secret    = config('app.key');
+        $signature = rtrim(strtr(base64_encode(hash_hmac('sha256', "{$header}.{$payload}", $secret, true)), '+/', '-_'), '=');
+
+        return "{$header}.{$payload}.{$signature}";
     }
 
 }

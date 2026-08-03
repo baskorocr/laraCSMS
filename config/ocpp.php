@@ -29,5 +29,13 @@ return [
             'OCPP_DIAGNOSTICS_UPLOAD_URL',
             'ftp://ftpadmin:password@127.0.0.1:2121/diagnostics/{charge_point_code}/{message_id}'
         ),
+
+        'ftp' => [
+            'host'        => env('OCPP_DIAGNOSTICS_FTP_HOST', '127.0.0.1'),
+            'port'        => (int) env('OCPP_DIAGNOSTICS_FTP_PORT', 2121),
+            'username'    => env('OCPP_DIAGNOSTICS_FTP_USER', 'ftpadmin'),
+            'password'    => env('OCPP_DIAGNOSTICS_FTP_PASSWORD', ''),
+            'remote_path' => env('OCPP_DIAGNOSTICS_FTP_REMOTE_PATH', '/diagnostics/{charge_point_code}/{message_id}'),
+        ],
     ],
 ];

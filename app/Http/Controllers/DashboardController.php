@@ -22,8 +22,16 @@ class DashboardController extends Controller
         $chargePointsQuery = DB::table('charge_points');
         $activeSessionsQuery = DB::table('connectors')->where('status', 'Charging');
         $companiesQuery = DB::table('companies')->where('is_active', true);
-        $connectorsAvailableQuery = DB::table('connectors')->whereIn('status', ['Available', 'Online']);
-        $connectorsFaultQuery = DB::table('connectors')->whereIn('status', ['Faulted', 'Offline']);
+        $connectorsAvailableQuery = DB::table('connectors')
+            ->join('charge_points', 'charge_points.id', '=', 'connectors.charge_point_id')
+            ->where('connectors.status', 'Available')
+            ->where('charge_points.is_online', true);
+        $connectorsFaultQuery = DB::table('connectors')
+            ->join('charge_points', 'charge_points.id', '=', 'connectors.charge_point_id')
+            ->where(function ($q) {
+                $q->where('connectors.status', 'Faulted')
+                  ->orWhere('charge_points.is_online', false);
+            });
 
         $energyQuery = DB::table('meter_values')
             ->join('charge_points', 'charge_points.id', '=', 'meter_values.charge_point_id')
@@ -33,6 +41,12 @@ class DashboardController extends Controller
         $totalEnergyQuery = DB::table('transactions')
             ->whereNotNull('meter_stop')
             ->selectRaw('COALESCE(SUM(GREATEST(meter_stop - meter_start, 0)), 0) as total_wh');
+
+        $totalRevenueQuery = DB::table('transactions')
+            ->join('charge_points', 'charge_points.id', '=', 'transactions.charge_point_id')
+            ->whereNotNull('transactions.meter_stop')
+            ->whereNotNull('charge_points.price_per_kwh')
+            ->selectRaw('COALESCE(SUM(GREATEST(transactions.meter_stop - transactions.meter_start, 0) / 1000 * charge_points.price_per_kwh), 0) as total_revenue');
 
         $recentTransactionsQuery = DB::table('transactions')
             ->leftJoin('charge_points', 'charge_points.id', '=', 'transactions.charge_point_id')
@@ -52,6 +66,21 @@ class DashboardController extends Controller
             ->orderByDesc('transactions.started_at')
             ->limit(10);
 
+        $chargePointMapQuery = DB::table('charge_points')
+            ->leftJoin('companies', 'companies.id', '=', 'charge_points.company_id')
+            ->select(
+                'charge_points.id',
+                'charge_points.charge_point_id',
+                'charge_points.name',
+                'charge_points.status',
+                'charge_points.is_online',
+                'charge_points.latitude',
+                'charge_points.longitude',
+                'companies.name as company_name'
+            )
+            ->whereNotNull('charge_points.latitude')
+            ->whereNotNull('charge_points.longitude');
+
         if (! $isGlobalAdmin) {
             $this->scopeToCompany($chargePointsQuery, 'charge_points.company_id', $companyId);
             $this->scopeToCompany($activeSessionsQuery, 'connectors.company_id', $companyId);
@@ -60,11 +89,14 @@ class DashboardController extends Controller
             $this->scopeToCompany($connectorsFaultQuery, 'connectors.company_id', $companyId);
             $this->scopeToCompany($energyQuery, 'charge_points.company_id', $companyId);
             $this->scopeToCompany($totalEnergyQuery, 'transactions.company_id', $companyId);
+            $this->scopeToCompany($totalRevenueQuery, 'transactions.company_id', $companyId);
             $this->scopeToCompany($recentTransactionsQuery, 'transactions.company_id', $companyId);
+            $this->scopeToCompany($chargePointMapQuery, 'charge_points.company_id', $companyId);
         }
 
         $energyToday = $energyQuery->sum('meter_values.value') ?? 0;
         $totalEnergyDistributedKwh = round((float) $totalEnergyQuery->value('total_wh') / 1000, 2);
+        $totalRevenue = (float) $totalRevenueQuery->value('total_revenue');
 
         $stats = [
             'chargePoints' => $chargePointsQuery->count(),
@@ -76,13 +108,24 @@ class DashboardController extends Controller
         ];
 
         $recentTransactions = $recentTransactionsQuery->get();
+        $chargePointMarkers = $chargePointMapQuery->get()->map(fn ($cp) => [
+            'lat'       => (float) $cp->latitude,
+            'lng'       => (float) $cp->longitude,
+            'name'      => $cp->name,
+            'cp_id'     => $cp->charge_point_id,
+            'company'   => $cp->company_name,
+            'status'    => $cp->status,
+            'is_online' => (bool) $cp->is_online,
+        ])->values();
 
         return view('dashboard', compact(
             'stats',
             'recentTransactions',
             'totalEnergyDistributedKwh',
+            'totalRevenue',
             'isGlobalAdmin',
             'companyName',
+            'chargePointMarkers',
         ));
     }
 

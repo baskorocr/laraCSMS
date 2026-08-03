@@ -90,6 +90,7 @@
                             @endif
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Status</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Energy (kWh)</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Biaya (Rp)</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Started</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Stopped</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Action</th>
@@ -100,6 +101,9 @@
                             @php
                                 $energyKwh = $row->meter_stop !== null
                                     ? max(0, round(((float) $row->meter_stop - (float) $row->meter_start) / 1000, 3))
+                                    : null;
+                                $biaya = ($energyKwh !== null && $row->price_per_kwh !== null)
+                                    ? $energyKwh * (float) $row->price_per_kwh
                                     : null;
                             @endphp
                             <tr class="hover:bg-gray-50/70 dark:hover:bg-dark-eval-2/60">
@@ -125,7 +129,10 @@
                                     <span class="inline-flex rounded px-2 py-0.5 text-xs font-medium {{ $statusColor }}">{{ $row->status }}</span>
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                                    {{ $energyKwh !== null ? number_format($energyKwh, 3) : '-' }}
+                                    {{ $energyKwh !== null ? number_format($energyKwh, 3, ',', '.') : '-' }}
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                                    {{ $biaya !== null ? 'Rp '.number_format($biaya, 0, ',', '.') : '-' }}
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->started_at }}</td>
                                 <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->stopped_at ?? '-' }}</td>
@@ -142,7 +149,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ $isAdmin ? 10 : 9 }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <td colspan="{{ $isAdmin ? 11 : 10 }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                                     Data transaksi belum tersedia.
                                 </td>
                             </tr>

@@ -40,7 +40,7 @@ class DiagnosticsService
         }
 
         $chargePointCode = (string) $station->charge_point_id;
-        $messageId = $chargePointCode.'_'.now()->timestamp;
+        $messageId = $chargePointCode.'_'.now()->getTimestampMs();
         $location = str_replace(
             ['{charge_point_code}', '{message_id}'],
             [$chargePointCode, $messageId],

@@ -162,6 +162,20 @@ class OcppMessageService
      */
     private function buildResponsePayload(string $action, array $payload, array $stationContext): ?array
     {
+        if ($action === 'Heartbeat') {
+            DB::table('charge_points')
+                ->where('id', (int) $stationContext['charge_point_pk'])
+                ->update(['last_heartbeat_at' => now(), 'is_online' => true, 'updated_at' => now()]);
+
+            return ['currentTime' => now()->toIso8601String()];
+        }
+
+        if ($action === 'BootNotification') {
+            DB::table('charge_points')
+                ->where('id', (int) $stationContext['charge_point_pk'])
+                ->update(['last_heartbeat_at' => now(), 'is_online' => true, 'updated_at' => now()]);
+        }
+
         if ($action === 'StatusNotification') {
             if ($this->isOcpp21($stationContext)) {
                 $this->adapterManager->resolve('2.1')->handleCall($action, $payload, $stationContext);

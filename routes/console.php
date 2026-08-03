@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schedule;
 use App\Services\Auth\RoutePermissionSyncService;
 use App\Services\Ocpp\OcppWebSocketServer;
 use App\Services\Ocpp\OcppCommandService;
@@ -66,6 +67,9 @@ function ocpp_kill_pid(int $pid): void
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Schedule::command('ocpp:mark-stale-offline')->everyMinute();
+Schedule::command('ocpp:commands:reconcile')->everyFiveMinutes();
 
 Artisan::command('realtime:test {chargePointId=CP-acme-001}', function (string $chargePointId) {
     $pk = DB::table('charge_points')->where('charge_point_id', $chargePointId)->value('id');

@@ -87,8 +87,11 @@ class ChargePointDiagnosticsController extends Controller
 
         $path = $diagnosticsService->resolveLocalFilePath((int) $requestRow->id);
         if (! $path) {
+            $path = app(\App\Services\Ocpp\DiagnosticsFtpDownloader::class)->download($requestRow);
+        }
+        if (! $path) {
             return response()->json([
-                'message' => 'File diagnostics belum ada di server lokal. Unduh manual dari FTP location jika sudah Uploaded.',
+                'message' => 'File diagnostics tidak ditemukan di server maupun FTP.',
             ], 404);
         }
 

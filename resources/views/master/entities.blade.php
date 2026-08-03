@@ -209,6 +209,18 @@
                                     <option value="0" selected>Offline</option>
                                 </select>
                             </label>
+                            <label class="space-y-1 text-sm">
+                                <span class="text-gray-600 dark:text-gray-300">Harga per kWh (Rp)</span>
+                                <input type="number" name="price_per_kwh" step="0.01" min="0" class="auth-input px-3 py-2 text-sm" placeholder="Contoh: 2500.00">
+                            </label>
+                            <div class="md:col-span-2 space-y-1 text-sm">
+                                <span class="text-gray-600 dark:text-gray-300">Lokasi (klik peta untuk pin)</span>
+                                <div id="create-cp-map" class="h-56 w-full rounded-lg border border-gray-300 dark:border-gray-600" data-leaflet-map data-map-id="create"></div>
+                                <div class="grid grid-cols-2 gap-2 mt-1">
+                                    <input type="number" name="latitude" id="create-cp-lat" step="any" class="auth-input px-3 py-1.5 text-xs" placeholder="Latitude">
+                                    <input type="number" name="longitude" id="create-cp-lng" step="any" class="auth-input px-3 py-1.5 text-xs" placeholder="Longitude">
+                                </div>
+                            </div>
                         @endif
                     </div>
                     <div class="mt-6 flex justify-end gap-2">
@@ -234,6 +246,7 @@
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Name</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Timezone</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">API Token</th>
                             @elseif ($entity === 'users')
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">ID</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Name</th>
@@ -273,6 +286,17 @@
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->name }}</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->timezone }}</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->is_active ? 'Active' : 'Inactive' }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                                        @if ($row->api_token)
+                                            <div class="flex items-center gap-1">
+                                                <code class="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-300" data-token-display="{{ $row->id }}">••••••••••••</code>
+                                                <button type="button" class="shrink-0 rounded border border-gray-300 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300" data-reveal-token data-token="{{ $row->api_token }}" data-target="{{ $row->id }}">Show</button>
+                                                <button type="button" class="shrink-0 rounded border border-gray-300 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300" data-copy-token data-copy-text="{{ $row->api_token }}">Copy</button>
+                                            </div>
+                                        @else
+                                            <span class="text-gray-400 text-xs">-</span>
+                                        @endif
+                                    </td>
                                 @elseif ($entity === 'users')
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->id }}</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ $row->name }}</td>
@@ -449,6 +473,19 @@
                                                                 <option value="0" @selected(! (bool) $row->is_active)>Inactive</option>
                                                             </select>
                                                         </label>
+                                                        <div class="md:col-span-2 space-y-1">
+                                                            <span class="text-xs text-gray-500">API Token</span>
+                                                            <div class="space-y-1">
+                                                                <code class="block w-full rounded bg-gray-100 px-2 py-1 text-xs font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-300 break-all overflow-hidden" style="word-break:break-all;overflow-wrap:anywhere;white-space:normal" data-token-display="modal-{{ $row->id }}">••••••••••••••••••••</code>
+                                                                <div class="flex flex-wrap gap-1">
+                                                                @if ($row->api_token)
+                                                                    <button type="button" class="shrink-0 rounded border border-gray-300 px-2 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300" data-reveal-token data-token="{{ $row->api_token }}" data-target="modal-{{ $row->id }}">Show</button>
+                                                                    <button type="button" class="shrink-0 rounded border border-gray-300 px-2 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300" data-copy-token data-copy-text="{{ $row->api_token }}">Copy</button>
+                                                                @endif
+                                                                <button type="button" data-regenerate-token data-action="{{ route('master.companies.regenerate-token', $row->id) }}" data-company-name="{{ $row->name }}" data-row-id="{{ $row->id }}" data-csrf="{{ csrf_token() }}" class="shrink-0 rounded bg-amber-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-amber-700">Regenerate Token</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     @elseif ($entity === 'users')
                                                         <label class="space-y-1">
                                                             <span class="text-xs text-gray-500">Company</span>
@@ -521,6 +558,25 @@
                                                                 <option value="0" @selected(! (bool) $row->is_online)>Offline</option>
                                                             </select>
                                                         </label>
+                                                        <label class="space-y-1">
+                                                            <span class="text-xs text-gray-500">Harga per kWh (Rp)</span>
+                                                            <input type="number" name="price_per_kwh" step="0.01" min="0" value="{{ $row->price_per_kwh }}" class="auth-input px-2 py-1.5 text-xs" placeholder="Contoh: 2500.00">
+                                                        </label>
+                                                        <div class="md:col-span-2 space-y-1">
+                                                            <span class="text-xs text-gray-500">Lokasi (klik peta untuk pin)</span>
+                                                            <div
+                                                                id="edit-cp-map-{{ $row->id }}"
+                                                                class="h-48 w-full rounded-lg border border-gray-300 dark:border-gray-600"
+                                                                data-leaflet-map
+                                                                data-map-id="edit-{{ $row->id }}"
+                                                                data-lat="{{ $row->latitude }}"
+                                                                data-lng="{{ $row->longitude }}"
+                                                            ></div>
+                                                            <div class="grid grid-cols-2 gap-2 mt-1">
+                                                                <input type="number" name="latitude" id="edit-cp-lat-{{ $row->id }}" step="any" value="{{ $row->latitude }}" class="auth-input px-2 py-1.5 text-xs" placeholder="Latitude">
+                                                                <input type="number" name="longitude" id="edit-cp-lng-{{ $row->id }}" step="any" value="{{ $row->longitude }}" class="auth-input px-2 py-1.5 text-xs" placeholder="Longitude">
+                                                            </div>
+                                                        </div>
                                                     @endif
                                                 </div>
                                                 <div class="mt-6 flex justify-end gap-2">
@@ -538,7 +594,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ $entity === 'companies' ? ($canManage ? 7 : 6) : ($entity === 'users' ? ($canManage ? 7 : 6) : ($canManage ? 14 : 13)) }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <td colspan="{{ $entity === 'companies' ? ($canManage ? 8 : 7) : ($entity === 'users' ? ($canManage ? 7 : 6) : ($canManage ? 14 : 13)) }}" class="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                                     Data belum tersedia.
                                 </td>
                             </tr>
@@ -578,6 +634,86 @@
             }).catch(() => {
                 window.prompt('Salin URL OCPP:', text);
             });
+        });
+    </script>
+@endif
+
+@if ($entity === 'companies')
+    <script>
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-copy-token]');
+            if (!btn) return;
+            navigator.clipboard.writeText(btn.dataset.copyText || '').then(() => {
+                const orig = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 1200);
+            }).catch(() => window.prompt('Salin token:', btn.dataset.copyText));
+        });
+
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-reveal-token]');
+            if (!btn) return;
+            const target = document.querySelector('[data-token-display="' + btn.dataset.target + '"]');
+            if (!target) return;
+            const isHidden = target.textContent.includes('•');
+            target.textContent = isHidden ? btn.dataset.token : '•'.repeat(20);
+            btn.textContent = isHidden ? 'Hide' : 'Show';
+        });
+
+        document.addEventListener('click', async (e) => {
+            const btn = e.target.closest('[data-regenerate-token]');
+            if (!btn) return;
+
+            const name = btn.dataset.companyName || 'company ini';
+            if (!confirm('Regenerate API token untuk ' + name + '?\nToken lama akan langsung tidak berlaku.')) return;
+
+            const rowId = btn.dataset.rowId;
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Memproses...';
+
+            try {
+                const res = await fetch(btn.dataset.action, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': btn.dataset.csrf,
+                    },
+                });
+                const json = await res.json();
+                if (!res.ok || !json.token) throw new Error('Gagal regenerate token');
+
+                const newToken = json.token;
+
+                // Update modal token display
+                const displayEl = document.querySelector('[data-token-display="modal-' + rowId + '"]');
+                if (displayEl) displayEl.textContent = newToken;
+
+                // Update reveal & copy buttons in modal
+                const modalReveal = document.querySelector('[data-reveal-token][data-target="modal-' + rowId + '"]');
+                if (modalReveal) { modalReveal.dataset.token = newToken; modalReveal.textContent = 'Hide'; }
+                const modalCopy = modalReveal ? modalReveal.closest('div')?.querySelector('[data-copy-token]') : null;
+                if (modalCopy) modalCopy.dataset.copyText = newToken;
+
+                // Update table row
+                const tableDisplay = document.querySelector('[data-token-display="' + rowId + '"]');
+                if (tableDisplay) {
+                    tableDisplay.textContent = '•'.repeat(20);
+                    const rowContainer = tableDisplay.closest('div');
+                    const revealBtn = rowContainer?.querySelector('[data-reveal-token]');
+                    if (revealBtn) { revealBtn.dataset.token = newToken; revealBtn.textContent = 'Show'; }
+                    const copyBtn = rowContainer?.querySelector('[data-copy-token]');
+                    if (copyBtn) copyBtn.dataset.copyText = newToken;
+                }
+
+                alert('Token berhasil di-regenerate.');
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = origText;
+            }
         });
     </script>
 @endif
@@ -629,6 +765,94 @@
                 .catch(() => {
                     // Keep existing fallback option when API is unavailable.
                 });
+        })();
+    </script>
+@endif
+
+@if ($entity === 'charge_points')
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        (function () {
+            const maps = {};
+
+            function initMap(el) {
+                const mapId = el.dataset.mapId;
+                const initLat = parseFloat(el.dataset.lat) || -6.2;
+                const initLng = parseFloat(el.dataset.lng) || 106.816;
+                const hasCoords = el.dataset.lat && el.dataset.lng;
+
+                const map = L.map(el).setView([initLat, initLng], hasCoords ? 15 : 5);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19,
+                }).addTo(map);
+
+                let marker = null;
+                if (hasCoords) {
+                    marker = L.marker([initLat, initLng]).addTo(map);
+                }
+
+                maps[mapId] = { map, marker };
+
+                map.on('click', (e) => {
+                    const { lat, lng } = e.latlng;
+                    if (marker) {
+                        marker.setLatLng([lat, lng]);
+                    } else {
+                        marker = L.marker([lat, lng]).addTo(map);
+                        maps[mapId].marker = marker;
+                    }
+
+                    const latInput = document.getElementById(mapId === 'create' ? 'create-cp-lat' : `edit-cp-lat-${mapId.replace('edit-', '')}`);
+                    const lngInput = document.getElementById(mapId === 'create' ? 'create-cp-lng' : `edit-cp-lng-${mapId.replace('edit-', '')}`);
+                    if (latInput) latInput.value = lat.toFixed(7);
+                    if (lngInput) lngInput.value = lng.toFixed(7);
+                });
+            }
+
+            // Init maps when modals open (Alpine dispatches open-modal)
+            document.addEventListener('open-modal', (e) => {
+                window.setTimeout(() => {
+                    document.querySelectorAll('[data-leaflet-map]').forEach((el) => {
+                        const mapId = el.dataset.mapId;
+                        if (!maps[mapId]) {
+                            initMap(el);
+                        } else {
+                            maps[mapId].map.invalidateSize();
+                        }
+                    });
+                }, 150);
+            });
+
+            // Also handle lat/lng input changes to move marker
+            document.addEventListener('change', (e) => {
+                const input = e.target;
+                if (!input.name || (input.name !== 'latitude' && input.name !== 'longitude')) return;
+
+                const form = input.closest('form');
+                if (!form) return;
+                const latInput = form.querySelector('input[name="latitude"]');
+                const lngInput = form.querySelector('input[name="longitude"]');
+                if (!latInput || !lngInput) return;
+
+                const lat = parseFloat(latInput.value);
+                const lng = parseFloat(lngInput.value);
+                if (isNaN(lat) || isNaN(lng)) return;
+
+                const mapEl = form.querySelector('[data-leaflet-map]');
+                if (!mapEl) return;
+                const mapId = mapEl.dataset.mapId;
+                if (!maps[mapId]) return;
+
+                const { map } = maps[mapId];
+                if (maps[mapId].marker) {
+                    maps[mapId].marker.setLatLng([lat, lng]);
+                } else {
+                    maps[mapId].marker = L.marker([lat, lng]).addTo(map);
+                }
+                map.setView([lat, lng], 15);
+            });
         })();
     </script>
 @endif

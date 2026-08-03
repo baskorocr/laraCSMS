@@ -86,6 +86,17 @@
             @endforeach
         </section>
 
+        {{-- Charge Point Map --}}
+        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-dark-eval-1">
+            <div class="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ __('Charge Point Locations') }}</h2>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ $chargePointMarkers->count() }} charge point terpasang lokasi
+                </p>
+            </div>
+            <div id="dashboard-map" class="h-80 w-full"></div>
+        </section>
+
         <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
             {{-- Recent transactions --}}
             <section class="overflow-hidden rounded-xl border border-gray-200 bg-white xl:col-span-2 dark:border-gray-700 dark:bg-dark-eval-1">
@@ -223,9 +234,64 @@
                             <dt class="text-gray-500 dark:text-gray-400">{{ __('Active sessions') }}</dt>
                             <dd class="font-medium tabular-nums text-gray-900 dark:text-white">{{ $stats['activeSessions'] }}</dd>
                         </div>
+                        <div class="flex items-center justify-between gap-3 text-sm border-t border-emerald-100 pt-3 dark:border-emerald-900/30">
+                            <dt class="font-medium text-gray-700 dark:text-gray-300">Total Pendapatan</dt>
+                            <dd class="font-semibold tabular-nums text-emerald-800 dark:text-emerald-300">Rp {{ number_format($totalRevenue, 0, ',', '.') }}</dd>
+                        </div>
                     </dl>
                 </div>
             </section>
         </div>
     </div>
 </x-app-layout>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+    const markers = @json($chargePointMarkers);
+
+    const map = L.map('dashboard-map').setView([-2.5, 118], 5);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+    }).addTo(map);
+
+    window.addEventListener('load', () => map.invalidateSize());
+    window.addEventListener('resize', () => map.invalidateSize());
+
+    const bounds = [];
+
+    markers.forEach((cp) => {
+        const color = cp.is_online ? '#10b981' : '#6b7280';
+        const icon = L.divIcon({
+            className: '',
+            html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7],
+        });
+
+        const marker = L.marker([cp.lat, cp.lng], { icon }).addTo(map);
+        marker.bindPopup(
+            `<div style="min-width:160px">
+                <div style="font-weight:600;font-size:13px">${cp.name}</div>
+                <div style="font-size:11px;color:#6b7280">${cp.cp_id}</div>
+                ${cp.company ? `<div style="font-size:11px;color:#6b7280">${cp.company}</div>` : ''}
+                <div style="margin-top:6px;display:flex;align-items:center;gap:6px">
+                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color}"></span>
+                    <span style="font-size:12px">${cp.is_online ? 'Online' : 'Offline'} &mdash; ${cp.status}</span>
+                </div>
+            </div>`
+        );
+
+        bounds.push([cp.lat, cp.lng]);
+    });
+
+    if (bounds.length === 1) {
+        map.setView(bounds[0], 14);
+    } else if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [40, 40] });
+    }
+})();
+</script>
